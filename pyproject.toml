@@ -1,0 +1,39 @@
+[project]
+name = "nas-rag-mcp"
+version = "0.1.0"
+description = "NAS Agentic RAG MCP Server"
+requires-python = ">=3.11"
+dependencies = [
+    # MCP
+    "mcp[cli]>=1.0.0",
+
+    # Embedding
+    "sentence-transformers>=3.0.0",
+    "torch>=2.0.0",
+
+    # Vector DB
+    "lancedb>=0.8.0",
+    "pyarrow>=15.0.0",
+
+    # Document parsing
+    "docling>=2.0.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+
+    # SQL
+    "duckdb>=1.0.0",
+
+    # OCR (Phase 2)
+    "easyocr>=1.7.0",
+    "Pillow>=10.0.0",
+
+    # Korean NLP
+    "kiwipiepy>=0.18.0",
+    "kss>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
