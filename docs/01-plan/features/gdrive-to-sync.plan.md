@@ -90,3 +90,4 @@
 - **테스트**: dry-run 805개 파일 대상 확인, 실제 실행 성공 (exit code 0)
 - **에러 수정**: ERR-004 bash 산술 오류 (grep -c 출력 개행 문제)
 - **참고**: Full Disk Access 권한 필요 (rsync가 Google Drive/sync 폴더 접근)
+- **Screen Shot 동기화**: 234개 png 파일 정상 복사 확인 (ERR-004로 인해 초기 실행 시 누락, 수정 후 정상)

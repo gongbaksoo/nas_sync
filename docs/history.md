@@ -93,9 +93,10 @@ NAS Agentic RAG 프로젝트 개발 이력.
 ### 트러블슈팅
 - **ERR-004**: bash 산술 오류 — `grep -c` 출력 개행 문제 → 변수 분리로 해결
 - **Full Disk Access**: rsync 권한 문제 → 시스템 설정에서 권한 추가로 해결
+- **Screen Shot 동기화 누락**: ERR-004로 인해 초기 실행 시 Screen Shot 복사 단계 미실행 → 수정 후 234개 파일 정상 복사 확인
 
 ### 테스트 결과
-- dry-run: 805개 파일 대상 확인
+- dry-run: 805개 파일(Work Space) + 234개 파일(Screen Shot) 대상 확인
 - 실제 실행: exit code 0, 전체 파이프라인 정상 동작
 - 파이프라인: 맥북 → Google Drive → Mac Mini sync → NAS
 
