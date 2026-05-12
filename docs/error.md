@@ -61,6 +61,17 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
 - **해결**: `grep -c "^>" || true`로 변경하여 grep이 0을 정상 반환하도록 수정
 - **영향 파일**: `~/sync_to_nas.sh`
 - **부수 영향**: ERR-004로 인해 초기 실행 시 Screen Shot 폴더(234개 파일) 동기화 누락. 수정 후 정상 복사 확인.
+
+---
+
+## ERR-005: launchd rsync Operation not permitted
+
+- **발생일**: 2026-05-12
+- **증상**: 터미널에서 수동 실행 시 정상이지만, launchd 자동 실행 시 `rsync: error: open /Users/j_mac_mini/Desktop/sync/: Operation not permitted` 발생 (exit code 23)
+- **원인**: launchd가 `/bin/bash`를 통해 스크립트를 실행하는데, `/bin/bash`에 Full Disk Access 권한이 없어서 sync 폴더와 NAS 마운트 접근 불가
+- **해결**: 시스템 설정 > 개인정보 및 보안 > Full Disk Access에 `/bin/bash` 추가
+- **영향 파일**: `~/Library/LaunchAgents/com.sync.nas.plist` (설정 변경 없음, OS 권한 설정만 변경)
+- **교훈**: macOS launchd에서 실행하는 프로세스는 터미널과 별도의 권한 컨텍스트를 가짐. 실행 바이너리(`/bin/bash`)에 직접 FDA 권한 부여 필요.
 - **수정 전**:
   ```bash
   GDRIVE_COUNT=$((GDRIVE_COUNT + $(echo "$GDRIVE_OUT" | grep -c "^>" || echo "0")))

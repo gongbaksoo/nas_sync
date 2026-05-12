@@ -91,3 +91,4 @@
 - **에러 수정**: ERR-004 bash 산술 오류 (grep -c 출력 개행 문제)
 - **참고**: Full Disk Access 권한 필요 (rsync가 Google Drive/sync 폴더 접근)
 - **Screen Shot 동기화**: 234개 png 파일 정상 복사 확인 (ERR-004로 인해 초기 실행 시 누락, 수정 후 정상)
+- **NAS 동기화 완료**: Full Disk Access에 `/bin/bash` 추가 후 launchd 자동 실행 정상 동작 확인. Screen Shot 234개, Work Space 전체 NAS 도착 확인.
