@@ -50,3 +50,22 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
   except Exception as e:
       full_text = self._fallback_parse(file_path)
   ```
+
+---
+
+## ERR-004: sync_to_nas.sh bash 산술 오류
+
+- **발생일**: 2026-05-12
+- **증상**: `syntax error in expression (error token is "0")` — Google Drive → sync 복사 단계에서 파일 카운트 계산 실패
+- **원인**: `grep -c "^>" || echo "0"` 구문에서 grep 출력에 개행이 포함되어 `$((...))` 산술 연산이 파싱 실패
+- **해결**: `grep -c "^>" || true`로 변경하여 grep이 0을 정상 반환하도록 수정
+- **영향 파일**: `~/sync_to_nas.sh`
+- **수정 전**:
+  ```bash
+  GDRIVE_COUNT=$((GDRIVE_COUNT + $(echo "$GDRIVE_OUT" | grep -c "^>" || echo "0")))
+  ```
+- **수정 후**:
+  ```bash
+  CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
+  GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
+  ```

@@ -75,6 +75,32 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-05-12: Google Drive → sync 자동 동기화
+
+### Plan Plus
+- 맥북 Google Drive '내 Mac' 폴더를 Mac Mini sync 폴더로 자동 연동하는 요구사항 분석
+- Phase 0~5 수행: 컨텍스트 탐색 → Intent Discovery → 대안 탐색 → YAGNI → 설계 검증 → Plan 문서 생성
+- 핵심 발견: 맥북/Mac Mini 모두 Google Drive 설치됨 → Mac Mini 내부 로컬 복사만 필요
+- Plan 문서: `docs/01-plan/features/gdrive-to-sync.plan.md`
+
+### 구현
+- `~/sync_to_nas.sh` 수정: 0단계(Google Drive → sync) 추가
+  - 소스: `~/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac/`
+  - Work Space/ → ~/Desktop/sync/, Screen Shot/ → ~/Desktop/sync/Screen Shot/
+- rsync 필터를 공통 `RSYNC_FILTERS` 배열 변수로 리팩토링
+- 기존 launchd 스케줄(매시 정각) 변경 없이 자동 실행
+
+### 트러블슈팅
+- **ERR-004**: bash 산술 오류 — `grep -c` 출력 개행 문제 → 변수 분리로 해결
+- **Full Disk Access**: rsync 권한 문제 → 시스템 설정에서 권한 추가로 해결
+
+### 테스트 결과
+- dry-run: 805개 파일 대상 확인
+- 실제 실행: exit code 0, 전체 파이프라인 정상 동작
+- 파이프라인: 맥북 → Google Drive → Mac Mini sync → NAS
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -88,6 +114,7 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | S5 Agentic | ⏳ 미착수 |
 | MCP 연결 | ✅ 동작 중 |
 | NAS 전체 인덱싱 | ✅ 66파일/7,335청크 |
+| Google Drive → sync | ✅ 완료 (805파일 대상) |
 
 ### 다음 작업
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현
