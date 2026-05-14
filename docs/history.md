@@ -95,11 +95,14 @@ NAS Agentic RAG 프로젝트 개발 이력.
 - **Full Disk Access**: rsync 권한 문제 → 시스템 설정에서 권한 추가로 해결
 - **Screen Shot 동기화 누락**: ERR-004로 인해 초기 실행 시 Screen Shot 복사 단계 미실행 → 수정 후 234개 파일 정상 복사 확인
 - **ERR-005**: launchd rsync 권한 오류 — `/bin/bash`에 Full Disk Access 권한 없음 → 시스템 설정에서 FDA 추가로 해결
+- **ERR-006**: rsync 전송 카운트 항상 0 — `-av`에서 `grep "^>"` 불일치 → `-avi`로 변경하여 해결
+- **ERR-007**: `~$` Office 임시 파일 제외 안 됨 — rsync 필터 순서 문제 → `--exclude`를 `--include` 앞으로 이동
 
 ### 테스트 결과
 - dry-run: 805개 파일(Work Space) + 234개 파일(Screen Shot) 대상 확인
-- 실제 실행: exit code 0, 전체 파이프라인 정상 동작
+- 실제 실행: exit code 0, Google Drive → sync 663개, sync → NAS 3개 전송 로그 정상
 - NAS 도착 확인: Screen Shot 234개, AVK/Download Backup/Stock Data 전체 복사됨
+- `~$` 임시 파일 필터링 정상 동작 확인
 - 파이프라인: 맥북 → Google Drive → Mac Mini sync → NAS
 
 ---

@@ -92,3 +92,5 @@
 - **참고**: Full Disk Access 권한 필요 (rsync가 Google Drive/sync 폴더 접근)
 - **Screen Shot 동기화**: 234개 png 파일 정상 복사 확인 (ERR-004로 인해 초기 실행 시 누락, 수정 후 정상)
 - **NAS 동기화 완료**: Full Disk Access에 `/bin/bash` 추가 후 launchd 자동 실행 정상 동작 확인. Screen Shot 234개, Work Space 전체 NAS 도착 확인.
+- **ERR-006 수정 (2026-05-14)**: rsync `-av` → `-avi` 변경. `-av`에서는 `grep "^>"` 카운트가 항상 0이었음 (전송은 정상이었으나 로그만 부정확)
+- **ERR-007 수정 (2026-05-14)**: rsync 필터 순서 변경. `--exclude='~$*'`를 `--include` 앞으로 이동하여 Office 임시 파일 제외 정상 동작

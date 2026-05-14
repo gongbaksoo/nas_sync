@@ -81,3 +81,41 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
   CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
   GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
   ```
+
+---
+
+## ERR-006: rsync 전송 파일 카운트 항상 0
+
+- **발생일**: 2026-05-14
+- **증상**: 파일이 정상 복사되지만 로그에 "전송 파일: 0개"로 기록됨. Google Drive → sync 로그도 남지 않음 (카운트 0이면 로그 스킵)
+- **원인**: `rsync -av` 출력은 파일명만 나열 (접두사 없음). `grep -c "^>"` 는 `rsync -i` (itemize-changes) 출력의 `>f........` 접두사를 기대하므로 항상 0
+- **해결**: `rsync -av` → `rsync -avi`로 변경하여 itemize-changes 출력 활성화
+- **영향 파일**: `~/sync_to_nas.sh` (3곳 모두 변경)
+- **교훈**: rsync의 `-v`와 `-i` 출력 형식이 다름. 파일 카운트에는 `-i` 필수.
+
+---
+
+## ERR-007: rsync --exclude='~$*' 필터 미동작
+
+- **발생일**: 2026-05-14
+- **증상**: `--exclude='~$*'` 설정에도 Office 임시 파일(`~$260514_...xlsx`)이 동기화됨
+- **원인**: rsync 필터는 **첫 번째 매칭 규칙 우선**. `--include='*.xlsx'`가 `--exclude='~$*'`보다 앞에 있어서 `~$xxx.xlsx`가 include에 먼저 매칭됨
+- **해결**: `--exclude` 규칙을 `--include` 앞으로 이동
+- **영향 파일**: `~/sync_to_nas.sh`
+- **수정 전**:
+  ```bash
+  RSYNC_FILTERS=(
+      --include='*.xlsx' ...
+      --exclude='~$*' --exclude='.DS_Store' --exclude='Thumbs.db'
+      --exclude='*'
+  )
+  ```
+- **수정 후**:
+  ```bash
+  RSYNC_FILTERS=(
+      --exclude='~$*' --exclude='.DS_Store' --exclude='Thumbs.db'
+      --include='*.xlsx' ...
+      --exclude='*'
+  )
+  ```
+- **교훈**: rsync 필터는 순서가 중요. exclude를 먼저, include를 나중에 배치해야 의도대로 동작.
