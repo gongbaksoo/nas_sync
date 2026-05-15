@@ -57,7 +57,7 @@
 ### MVP 포함
 - Work Space 폴더 동기화
 - Screen Shot 폴더 동기화
-- 확장자 필터링 (기존과 동일)
+- 확장자 필터링 (xlsx, xls, xlsb, pptx, ppt, pdf, zip, jpg, jpeg, png, gif, webp)
 
 ### 제외 (Out of Scope)
 - 전체 파일 동기화 (확장자 제한 없는 모드)
@@ -94,3 +94,4 @@
 - **NAS 동기화 완료**: Full Disk Access에 `/bin/bash` 추가 후 launchd 자동 실행 정상 동작 확인. Screen Shot 234개, Work Space 전체 NAS 도착 확인.
 - **ERR-006 수정 (2026-05-14)**: rsync `-av` → `-avi` 변경. `-av`에서는 `grep "^>"` 카운트가 항상 0이었음 (전송은 정상이었으나 로그만 부정확)
 - **ERR-007 수정 (2026-05-14)**: rsync 필터 순서 변경. `--exclude='~$*'`를 `--include` 앞으로 이동하여 Office 임시 파일 제외 정상 동작
+- **확장자 추가 (2026-05-15)**: `.xlsb`, `.zip` 확장자 누락으로 11시 이후 파일 미동기화 → 필터 및 14일 삭제 대상에 추가. 88개 파일 NAS 전송 확인.

@@ -107,6 +107,22 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-05-15: xlsb/zip 확장자 추가
+
+### 이슈
+- 5/14 오전 11시 이후 생성된 `.xlsb`, `.zip` 파일이 NAS에 동기화되지 않음 발견
+- 원인: rsync 필터에 해당 확장자 미포함 (ERR-008)
+
+### 수정
+- `sync_to_nas.sh` RSYNC_FILTERS에 `--include='*.xlsb'`, `--include='*.zip'` 추가
+- 3단계 14일 삭제 find에도 동일 확장자 추가
+
+### 결과
+- 수정 후 실행: Google Drive → sync 773개, sync → NAS 88개 전송
+- 누락됐던 xlsb 5개, zip 5개, jpg 1개, xlsx 1개 NAS 도착 확인
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -120,7 +136,7 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | S5 Agentic | ⏳ 미착수 |
 | MCP 연결 | ✅ 동작 중 |
 | NAS 전체 인덱싱 | ✅ 66파일/7,335청크 |
-| Google Drive → sync | ✅ 완료 (805파일 대상) |
+| Google Drive → sync | ✅ 완료 (773파일+, xlsb/zip 포함) |
 
 ### 다음 작업
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현
