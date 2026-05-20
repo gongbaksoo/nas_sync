@@ -131,3 +131,82 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
 - **영향 파일**: `~/sync_to_nas.sh`
 - **결과**: 수정 후 실행 시 88개 파일 NAS 전송 확인
 - **교훈**: 사용자가 다루는 파일 형식을 사전에 파악하여 필터에 포함해야 함. 새로운 확장자가 등장할 수 있으므로 주기적 점검 필요.
+
+---
+
+## ERR-009: Google Drive File Provider mmap 오류로 날짜 폴더 누락
+
+- **발생일**: 2026-05-19~2026-05-20
+- **증상**:
+  - 2026-05-19 `Download Backup/2026/2605/260519` 폴더가 Google Drive에는 존재하지만 로컬 `~/Desktop/sync`와 NAS에는 비어 있음
+  - 2026-05-20 자동 실행 로그에 `Google Drive → sync 복사 (2개 파일)`이 반복되지만 NAS 전송은 `0개`
+  - 로그에 `mmap: Resource deadlock avoided rsync_sender` 경고가 반복됨
+- **원인**:
+  - macOS Google Drive File Provider가 큰 `.xlsb` 파일 접근 중 mmap 오류를 내면서 전체 `Work Space` 트리 rsync가 일부 하위 날짜 폴더를 안정적으로 복사하지 못함
+  - 기존 스크립트는 Google Drive rsync exit code를 치명 오류로 처리하지 않고 카운트만 기록해서 실제 누락이 `OK`처럼 보였음
+- **해결**:
+  - 5/19 누락 파일 수동 보강 후 로컬/NAS 각 15개 파일 확인
+  - 5/20 누락 파일 수동 보강 후 로컬/NAS 각 2개 파일 확인
+  - `sync_to_nas.sh`에서 당일 `Download Backup/YYYY/YYMM/YYMMDD` 폴더를 전체 `Work Space` 스캔보다 먼저 별도 복사하도록 변경
+  - Google Drive rsync exit code와 `error/failed/cannot/denied` 문구를 WARN 로그로 기록
+- **영향 파일**:
+  - `~/sync_to_nas.sh`
+  - `scripts/sync_to_nas.sh` (repository 보관용 사본)
+  - `docs/01-plan/features/gdrive-to-sync.plan.md`
+  - `NAS_동기화_인수인계.md`
+- **검증**:
+  - NAS dry-run 결과 `0`
+  - 2026-05-20 `260520` 로컬/NAS 파일 수 각 `2`
+- **교훈**: File Provider 기반 경로는 전체 트리 스캔을 신뢰하지 말고 업무상 중요한 날짜/신규 폴더는 좁은 범위로 우선 보강해야 함.
+
+---
+
+## ERR-010: Google Drive/rsync 장시간 대기 및 중복 실행 위험
+
+- **발생일**: 2026-05-20
+- **증상**:
+  - 수동 실행 중 `Screen Shot` Google Drive rsync 단계가 장시간 멈춤
+  - 자동 스케줄과 수동 실행이 겹칠 경우 이전 프로세스가 다음 실행을 밀어낼 가능성 확인
+- **원인**:
+  - Google Drive File Provider 응답 지연 시 rsync가 기본 설정으로 오래 대기할 수 있음
+  - 기존 스크립트에 실행 lock이 없어 수동/자동 실행 중복을 명시적으로 막지 못함
+- **해결**:
+  - `GDRIVE_RSYNC_OPTS=(-avi --timeout=60)`
+  - `NAS_RSYNC_OPTS=(-rlti --omit-dir-times --timeout=60)`
+  - `~/.sync_nas.lock` 락 디렉토리 추가. 생성 실패 시 `SKIP: 이전 동기화 프로세스가 아직 실행 중` 기록 후 종료
+  - `Screen Shot` rsync도 exit code 및 `timeout` 문구를 WARN 로그로 기록
+- **영향 파일**:
+  - `~/sync_to_nas.sh`
+  - `scripts/sync_to_nas.sh`
+  - `NAS_동기화_인수인계.md`
+- **검증**:
+  - 수정 후 수동 실행 정상 종료
+  - `launchctl list`에서 `com.sync.nas` 로드 상태 확인
+- **교훈**: launchd 주기 작업은 네트워크/클라우드 파일시스템 hang에 대비해 timeout과 lock을 기본으로 가져야 함.
+
+---
+
+## ERR-011: 대용량 RAG 인덱싱 진행상태 불투명 및 재시도 반복
+
+- **발생일**: 2026-05-19~2026-05-20
+- **증상**:
+  - `260519_2.xlsx` 인덱싱이 27,660 청크에서 오래 걸리지만 진행률이 보이지 않음
+  - 파싱 실패한 `.xls`와 빈 텍스트 PDF가 매 실행마다 반복 재시도됨
+- **원인**:
+  - 임베딩과 LanceDB 저장이 한 번에 처리되어 대용량 파일 진행상태를 알기 어려움
+  - `auto_index.py`가 성공 파일만 마커에 저장하고 실패 파일 mtime은 기록하지 않음
+- **해결**:
+  - `EmbeddingEngine.encode()`를 512개 텍스트 단위로 나누고 `임베딩 진행: n/total` 로그 추가
+  - `VectorStore.upsert()`를 1,000개 record 단위로 나누고 `청크 저장 진행: n/total` 로그 추가
+  - `auto_index.py`에서 성공/실패/예외 모두 파일 mtime을 마커에 즉시 저장
+  - 동기화 스크립트에서 RAG 인덱싱을 백그라운드 실행하고 중복 실행 시 skip
+- **영향 파일**:
+  - `mcp_rag_server/auto_index.py`
+  - `mcp_rag_server/embeddings.py`
+  - `mcp_rag_server/stores/vector_store.py`
+  - `~/sync_to_nas.sh`
+- **검증**:
+  - 5/19 변경분 인덱싱: `10 성공, 19 실패`; `260519_2.xlsx` 27,660 청크 성공
+  - 5/20 변경분 인덱싱: `45 성공, 0 실패`
+  - 재실행 시 `변경된 파일 없음 — 인덱싱 건너뜀`
+- **교훈**: 장시간 배치 작업은 파일 단위 체크포인트와 청크 단위 진행 로그가 있어야 운영 중단/재시도 비용을 통제할 수 있음.

@@ -1,0 +1,162 @@
+#!/bin/bash
+
+# === NAS 동기화 스크립트 ===
+# Google Drive → sync → UGREEN NAS (단방향)
+# 스케줄: 07:00~22:00 매시 정각
+
+SOURCE="$HOME/Desktop/sync/"
+NAS_MOUNT="/Volumes/personal_folder/Macmini_backup/"
+GDRIVE="$HOME/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac"
+LOG="$HOME/.sync_nas.log"
+LOCK_DIR="$HOME/.sync_nas.lock"
+
+# rsync 확장자 필터 (공통)
+RSYNC_FILTERS=(
+    --exclude='~$*' --exclude='.DS_Store' --exclude='Thumbs.db'
+    --include='*.xlsx' --include='*.xls' --include='*.xlsb'
+    --include='*.csv'
+    --include='*.pptx' --include='*.ppt'
+    --include='*.pdf' --include='*.zip'
+    --include='*.html' --include='*.htm'
+    --include='*.jpg' --include='*.jpeg'
+    --include='*.png' --include='*.gif' --include='*.webp'
+    --include='*/'
+    --exclude='*'
+)
+
+GDRIVE_RSYNC_OPTS=(-avi --timeout=60)
+NAS_RSYNC_OPTS=(-rlti --omit-dir-times --timeout=60)
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"
+}
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    log "SKIP: 이전 동기화 프로세스가 아직 실행 중"
+    exit 0
+fi
+trap 'rmdir "$LOCK_DIR"' EXIT
+
+# === 0. Google Drive → sync 복사 ===
+if [ -d "$GDRIVE" ]; then
+    GDRIVE_COUNT=0
+
+    # 당일 폴더는 전체 Work Space 스캔보다 먼저 복사한다.
+    # Google Drive File Provider가 오래된 큰 파일에서 mmap 오류를 내면 뒤쪽 폴더가 누락될 수 있다.
+    TODAY_YEAR=$(date '+%Y')
+    TODAY_YM=$(date '+%y%m')
+    TODAY_YMD=$(date '+%y%m%d')
+    TODAY_GDRIVE="$GDRIVE/Work Space/Download Backup/$TODAY_YEAR/$TODAY_YM/$TODAY_YMD"
+    TODAY_SYNC="$SOURCE/Download Backup/$TODAY_YEAR/$TODAY_YM/$TODAY_YMD"
+    if [ -d "$TODAY_GDRIVE" ]; then
+        mkdir -p "$TODAY_SYNC"
+        GDRIVE_OUT=$(rsync "${GDRIVE_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$TODAY_GDRIVE/" "$TODAY_SYNC/" 2>&1)
+        GDRIVE_STATUS=$?
+        CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
+        GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
+        if [ "$GDRIVE_STATUS" -ne 0 ] || echo "$GDRIVE_OUT" | grep -qiE "error|failed|cannot|denied"; then
+            log "WARN: Google Drive 당일 폴더 복사 경고(exit: $GDRIVE_STATUS): $(echo "$GDRIVE_OUT" | grep -iE "error|failed|cannot|denied" | head -3 | tr '\n' ' ')"
+        fi
+    fi
+
+    # Work Space → sync/
+    if [ -d "$GDRIVE/Work Space" ]; then
+        GDRIVE_OUT=$(rsync "${GDRIVE_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$GDRIVE/Work Space/" "$SOURCE" 2>&1)
+        GDRIVE_STATUS=$?
+        CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
+        GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
+        if [ "$GDRIVE_STATUS" -ne 0 ] || echo "$GDRIVE_OUT" | grep -qiE "error|failed|cannot|denied"; then
+            log "WARN: Google Drive Work Space 복사 경고(exit: $GDRIVE_STATUS): $(echo "$GDRIVE_OUT" | grep -iE "error|failed|cannot|denied" | head -3 | tr '\n' ' ')"
+        fi
+    fi
+
+    # Screen Shot → sync/Screen Shot/
+    if [ -d "$GDRIVE/Screen Shot" ]; then
+        mkdir -p "$SOURCE/Screen Shot"
+        GDRIVE_OUT=$(rsync "${GDRIVE_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$GDRIVE/Screen Shot/" "$SOURCE/Screen Shot/" 2>&1)
+        GDRIVE_STATUS=$?
+        CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
+        GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
+        if [ "$GDRIVE_STATUS" -ne 0 ] || echo "$GDRIVE_OUT" | grep -qiE "error|failed|cannot|denied|timeout"; then
+            log "WARN: Google Drive Screen Shot 복사 경고(exit: $GDRIVE_STATUS): $(echo "$GDRIVE_OUT" | grep -iE "error|failed|cannot|denied|timeout" | head -3 | tr '\n' ' ')"
+        fi
+    fi
+
+    if [ "$GDRIVE_COUNT" -gt 0 ]; then
+        log "OK: Google Drive → sync 복사 (${GDRIVE_COUNT}개 파일)"
+    fi
+else
+    log "WARN: Google Drive 폴더 없음 - 건너뜀"
+fi
+
+# === 1. NAS 마운트 확인 ===
+if [ ! -d "$NAS_MOUNT" ]; then
+    log "NAS 미연결 - 재연결 시도"
+    open 'smb://gongbaksoo@192.168.0.235/personal_folder'
+    sleep 5
+fi
+
+if [ ! -d "$NAS_MOUNT" ]; then
+    log "ERROR: NAS 연결 실패 - 다음 스케줄에 재시도"
+    exit 1
+fi
+
+# === 2. rsync 동기화 (sync → NAS) ===
+RSYNC_OUTPUT=$(rsync "${NAS_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$SOURCE" "$NAS_MOUNT" 2>&1)
+
+RSYNC_STATUS=$?
+
+if [ $RSYNC_STATUS -eq 0 ]; then
+    SYNC_COUNT=$(echo "$RSYNC_OUTPUT" | grep -c "^>" || true)
+    log "OK: 동기화 완료 (전송 파일: ${SYNC_COUNT}개)"
+else
+    log "ERROR: rsync 실패 (exit code: $RSYNC_STATUS)"
+    log "DETAIL: $RSYNC_OUTPUT"
+    exit 1
+fi
+
+# === 3. 14일 이상 된 로컬 파일 삭제 ===
+if [ -d "$SOURCE" ]; then
+    DELETE_COUNT=$(find "$SOURCE" -type f \( \
+        -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsb" -o \
+        -name "*.csv" -o \
+        -name "*.pptx" -o -name "*.ppt" -o \
+        -name "*.pdf" -o -name "*.zip" -o -name "*.html" -o -name "*.htm" -o \
+        -name "*.jpg" -o -name "*.jpeg" -o \
+        -name "*.png" -o -name "*.gif" -o -name "*.webp" \
+    \) -ctime +14 | wc -l | tr -d ' ')
+
+    if [ "$DELETE_COUNT" -gt 0 ]; then
+        find "$SOURCE" -type f \( \
+            -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsb" -o \
+            -name "*.csv" -o \
+            -name "*.pptx" -o -name "*.ppt" -o \
+            -name "*.pdf" -o -name "*.zip" -o -name "*.html" -o -name "*.htm" -o \
+            -name "*.jpg" -o -name "*.jpeg" -o \
+            -name "*.png" -o -name "*.gif" -o -name "*.webp" \
+        \) -ctime +14 -delete
+
+        # 빈 디렉토리 정리
+        find "$SOURCE" -type d -empty -delete 2>/dev/null
+
+        log "OK: 14일 경과 로컬 파일 삭제 (${DELETE_COUNT}개)"
+    fi
+fi
+
+# === 4. RAG 자동 인덱싱 (변경 파일만) ===
+VENV_PYTHON="$HOME/Desktop/Vibe Coding/nas_sync/.venv/bin/python"
+AUTO_INDEX="$HOME/Desktop/Vibe Coding/nas_sync/mcp_rag_server/auto_index.py"
+INDEX_LOG="$HOME/.sync_nas_index.log"
+
+if [ -f "$VENV_PYTHON" ] && [ -f "$AUTO_INDEX" ]; then
+    if pgrep -f "$AUTO_INDEX" >/dev/null 2>&1; then
+        log "SKIP: RAG 인덱싱 이미 실행 중"
+    else
+        nohup "$VENV_PYTHON" "$AUTO_INDEX" >> "$INDEX_LOG" 2>&1 &
+        log "OK: RAG 인덱싱 백그라운드 시작 (pid: $!)"
+    fi
+else
+    log "SKIP: RAG 인덱싱 스크립트 없음"
+fi
+
+log "--- 동기화 사이클 완료 ---"

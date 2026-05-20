@@ -44,9 +44,14 @@
 
 - 방향: Mac Mini → NAS 단방향
 - 스케줄: 매일 07:00~22:00 매시 정각 (16회/일) + 부팅 시 1회
-- 대상 확장자: xlsx, xls, pptx, ppt, pdf, jpg, jpeg, png, gif, webp
+- 대상 확장자: xlsx, xls, xlsb, csv, pptx, ppt, pdf, zip, html, htm, jpg, jpeg, png, gif, webp
 - 제외: ~$* (Office 임시파일), .DS_Store, Thumbs.db
-- 로컬 보관: 14일 후 자동 삭제 (find -mtime +14 -delete)
+- 로컬 보관: 로컬 sync 폴더에 들어온 뒤 14일 후 자동 삭제 (find -ctime +14 -delete)
+- SMB 권한 메타데이터 차이는 동기화 변경으로 보지 않음 (NAS rsync는 권한/디렉토리 시간 보존 제외)
+- RAG 인덱싱은 동기화 후 백그라운드 실행하며 중복 실행은 건너뜀 (`~/.sync_nas_index.log`)
+- 중복 동기화 방지를 위해 `~/.sync_nas.lock` 락 디렉토리를 사용함
+- Google Drive/NAS rsync는 `--timeout=60`으로 무한 대기 방지
+- Google Drive File Provider가 큰 트리 스캔에서 당일 폴더를 놓치는 경우를 보강하기 위해 Download Backup/YYYY/YYMM/YYMMDD 폴더를 전체 스캔보다 먼저 별도 재동기화함
 - NAS 미연결 시: open smb:// 로 재연결 시도 → 실패 시 로그 기록 후 다음 스케줄 대기
 - 알림: 로그 파일만 (~/.sync_nas.log)
 

@@ -66,8 +66,18 @@ class VectorStore:
             })
 
         if records:
-            table.add(records)
-            logger.info("%d 청크 저장 완료 (소스: %s)", len(records), chunks[0].get("file_name", ""))
+            batch_size = 1000
+            total = len(records)
+            for start in range(0, total, batch_size):
+                end = min(start + batch_size, total)
+                table.add(records[start:end])
+                logger.info(
+                    "청크 저장 진행: %d/%d (소스: %s)",
+                    end,
+                    total,
+                    chunks[0].get("file_name", ""),
+                )
+            logger.info("%d 청크 저장 완료 (소스: %s)", total, chunks[0].get("file_name", ""))
 
     def search(self, query_vector: np.ndarray, top_k: int = 5,
                filters: dict | None = None) -> list[dict]:

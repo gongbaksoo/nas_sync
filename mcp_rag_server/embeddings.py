@@ -35,12 +35,24 @@ class EmbeddingEngine:
     def encode(self, texts: list[str]) -> np.ndarray:
         """텍스트 리스트 → 벡터 배열 (batch 처리)"""
         self._ensure_loaded()
-        return self.model.encode(
-            texts,
-            normalize_embeddings=True,
-            batch_size=32,
-            show_progress_bar=False,
-        )
+        if not texts:
+            return np.empty((0, self.config.embedding_dimension), dtype=np.float32)
+
+        encode_batch_size = 512
+        vectors = []
+        total = len(texts)
+        for start in range(0, total, encode_batch_size):
+            end = min(start + encode_batch_size, total)
+            logger.info("임베딩 진행: %d/%d", end, total)
+            batch_vectors = self.model.encode(
+                texts[start:end],
+                normalize_embeddings=True,
+                batch_size=32,
+                show_progress_bar=False,
+            )
+            vectors.append(batch_vectors)
+
+        return np.vstack(vectors)
 
     def encode_query(self, query: str) -> np.ndarray:
         """단일 쿼리 → 벡터 (검색용, BGE prefix 추가)"""

@@ -123,6 +123,56 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-05-20: 5/19 수동 보강분 확인 및 RAG 인덱싱 개선
+
+### 이슈
+- 2026-05-19 `Download Backup/2026/2605/260519` 폴더가 Google Drive에는 있었지만 로컬/NAS에는 비어 있던 문제 확인
+- Google Drive 전체 `Work Space` rsync는 실행됐지만 NAS 전송 파일 수가 `0개`로 남음
+- 5/18 수동 싱크분 중 일부 오래된 `.xls` 실패 파일이 매번 재시도됨
+- 대용량 `260519_2.xlsx`는 27,660 청크 인덱싱 중 진행상태가 보이지 않아 운영 판단이 어려움
+
+### 조치
+- 5/19 누락 파일을 수동 보강하여 로컬/NAS 각 15개 파일 확인
+- `csv`, `html`, `htm` 확장자를 rsync 필터와 14일 삭제 대상에 추가
+- `auto_index.py`에서 성공/실패/예외 모두 파일 mtime을 마커에 저장하도록 수정
+- `embeddings.py`에 512개 단위 임베딩 진행 로그 추가
+- `vector_store.py`에 1,000개 단위 LanceDB 저장 진행 로그 추가
+- RAG 인덱싱을 동기화 스크립트에서 백그라운드 실행하도록 전환
+
+### 결과
+- 5/18 마커: 기존 성공분과 실패 처리된 `.xls` 포함 47개 기록
+- 5/19 마커: 12개 기록 (성공 10개 + 빈 텍스트 PDF 실패 2개)
+- `260519_2.xlsx`: 27,660 청크 인덱싱 성공
+- 재실행 확인: `변경된 파일 없음 — 인덱싱 건너뜀`
+
+---
+
+## 2026-05-20: 5/20 동기화 장애 재발 대응
+
+### 이슈
+- 자동 스케줄은 매시 실행되고 있었지만 오늘 `260520` 폴더가 로컬/NAS에 비어 있음
+- 로그에 5/19 큰 `.xlsb` 파일 관련 `mmap: Resource deadlock avoided`가 반복됨
+- 수동 실행 중 `Screen Shot` Google Drive rsync가 장시간 대기하는 상태 확인
+
+### 조치
+- 5/20 오늘 파일 2개를 수동 보강하여 로컬/NAS로 복사
+- `sync_to_nas.sh`에서 당일 `Download Backup/YYYY/YYMM/YYMMDD` 폴더를 전체 `Work Space` 스캔보다 먼저 복사하도록 순서 변경
+- Google Drive/NAS rsync에 `--timeout=60` 추가
+- `~/.sync_nas.lock` 기반 중복 실행 방지 추가
+- Google Drive rsync exit code와 timeout/error 문구를 WARN 로그에 남기도록 개선
+- repository 추적을 위해 운영 스크립트 사본 `scripts/sync_to_nas.sh` 추가
+- SOP/Plan 문서와 error/history 문서 갱신
+
+### 검증
+- 로컬 `260520`: 2개 파일
+- NAS `260520`: 2개 파일
+- NAS dry-run: 0
+- RAG 인덱싱: 45 성공, 0 실패
+- 재실행 확인: `변경된 파일 없음 — 인덱싱 건너뜀`
+- launchd: `com.sync.nas` 로드 상태 정상
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -135,8 +185,10 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | S4 OCR | ✅ 완료 |
 | S5 Agentic | ⏳ 미착수 |
 | MCP 연결 | ✅ 동작 중 |
-| NAS 전체 인덱싱 | ✅ 66파일/7,335청크 |
-| Google Drive → sync | ✅ 완료 (773파일+, xlsb/zip 포함) |
+| NAS 전체 인덱싱 | ✅ 동작 중 (`~/.nas_rag`) |
+| Google Drive → sync | ✅ 완료 (xlsb/zip/csv/html 포함, 당일 폴더 우선 보강) |
+| RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록 |
+| 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅 |
 
 ### 다음 작업
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현

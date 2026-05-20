@@ -5,9 +5,9 @@
 | 관점 | 내용 |
 |------|------|
 | Problem | 맥북에서 Google Drive로 동기화되는 파일이 Mac Mini의 NAS 백업 파이프라인에 자동 연결되지 않음 |
-| Solution | 기존 sync_to_nas.sh에 Google Drive 로컬 폴더 → sync 폴더 복사 단계 추가 |
+| Solution | 기존 sync_to_nas.sh에 Google Drive 로컬 폴더 → sync 폴더 복사 단계, 당일 폴더 우선 보강, timeout/lock 안전장치 추가 |
 | UX Effect | 맥북에서 파일 저장 → 자동으로 NAS까지 백업 완료 (사용자 개입 불필요) |
-| Core Value | 맥북 작업 파일의 자동 NAS 백업으로 데이터 안전성 확보 |
+| Core Value | 맥북 작업 파일의 자동 NAS 백업과 RAG 인덱싱 연결로 데이터 안전성 및 검색 가능성 확보 |
 
 ## 1. 핵심 문제
 
@@ -22,6 +22,8 @@
 
 - Google Drive '내 Mac' 하위 파일이 자동으로 ~/Desktop/sync/에 복사됨
 - 기존 NAS 동기화 파이프라인과 자연스럽게 연계됨
+- Google Drive File Provider가 큰 트리 스캔에서 일부 날짜 폴더를 누락해도 당일 폴더는 우선 보강됨
+- 동기화 후 변경 파일 RAG 인덱싱이 백그라운드로 실행되고 중복 실행은 방지됨
 - 기존 동기화 기능에 영향 없음
 
 ## 4. 탐색한 대안
@@ -47,17 +49,31 @@
 | 소스 | 목적지 |
 |------|--------|
 | ~/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac/Work Space/ | ~/Desktop/sync/ |
+| ~/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac/Work Space/Download Backup/YYYY/YYMM/YYMMDD/ | ~/Desktop/sync/Download Backup/YYYY/YYMM/YYMMDD/ |
 | ~/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac/Screen Shot/ | ~/Desktop/sync/Screen Shot/ |
 
 ### 확장자 필터
-기존 sync_to_nas.sh와 동일: xlsx, xls, pptx, ppt, pdf, jpg, jpeg, png, gif, webp
+기존 sync_to_nas.sh와 동일: xlsx, xls, xlsb, csv, pptx, ppt, pdf, zip, html, htm, jpg, jpeg, png, gif, webp
+
+### 운영 안전장치
+
+| 항목 | 내용 |
+|------|------|
+| 중복 실행 방지 | `~/.sync_nas.lock` 락 디렉토리 생성 실패 시 해당 실행은 skip |
+| Google Drive rsync timeout | `--timeout=60`으로 File Provider hang 방지 |
+| NAS rsync timeout | `--timeout=60`으로 SMB hang 방지 |
+| 당일 폴더 우선 복사 | `Download Backup/YYYY/YYMM/YYMMDD`를 전체 Work Space 스캔보다 먼저 복사 |
+| 오류 기록 | Google Drive rsync exit code 및 `error/failed/cannot/denied/timeout` 문구를 WARN 로그로 기록 |
+| 인덱싱 | 동기화 완료 후 `auto_index.py`를 백그라운드 실행, 이미 실행 중이면 skip |
 
 ## 6. YAGNI Review
 
 ### MVP 포함
 - Work Space 폴더 동기화
 - Screen Shot 폴더 동기화
-- 확장자 필터링 (xlsx, xls, xlsb, pptx, ppt, pdf, zip, jpg, jpeg, png, gif, webp)
+- 확장자 필터링 (xlsx, xls, xlsb, csv, pptx, ppt, pdf, zip, html, htm, jpg, jpeg, png, gif, webp)
+- 당일 Download Backup 폴더 우선 보강
+- timeout/lock 기반 운영 안전장치
 
 ### 제외 (Out of Scope)
 - 전체 파일 동기화 (확장자 제한 없는 모드)
@@ -81,6 +97,8 @@
 | Google Drive 로컬 동기화 지연 | rsync가 현재 상태 기준으로 복사하므로 영향 없음 |
 | 경로에 한글/공백 포함 | 변수를 쌍따옴표로 감싸서 처리 |
 | Screen Shot 폴더 용량 과다 | 기존 14일 삭제 정책이 sync 폴더에도 적용됨 |
+| Google Drive File Provider가 특정 큰 파일에서 mmap 오류 | 당일 폴더를 전체 스캔보다 먼저 복사하고 WARN 로그 기록 |
+| 이전 실행이 장시간 점유 | lock으로 중복 실행을 skip하고 rsync timeout으로 hang 완화 |
 
 ## 9. 구현 결과
 
@@ -95,3 +113,6 @@
 - **ERR-006 수정 (2026-05-14)**: rsync `-av` → `-avi` 변경. `-av`에서는 `grep "^>"` 카운트가 항상 0이었음 (전송은 정상이었으나 로그만 부정확)
 - **ERR-007 수정 (2026-05-14)**: rsync 필터 순서 변경. `--exclude='~$*'`를 `--include` 앞으로 이동하여 Office 임시 파일 제외 정상 동작
 - **확장자 추가 (2026-05-15)**: `.xlsb`, `.zip` 확장자 누락으로 11시 이후 파일 미동기화 → 필터 및 14일 삭제 대상에 추가. 88개 파일 NAS 전송 확인.
+- **5/19 보강 (2026-05-20 01:02 KST)**: File Provider 큰 트리 스캔 누락으로 5/19 `260519` 폴더가 로컬/NAS에 비어 있던 문제 확인. 수동 보강 후 로컬/NAS 각 15개 파일 확인, NAS dry-run 0.
+- **5/20 보강 (2026-05-20 15:27 KST)**: 5/19 큰 `.xlsb`에서 `mmap: Resource deadlock avoided`가 반복되고 오늘 `260520` 폴더가 로컬/NAS에 누락됨. 당일 폴더 우선 복사, `--timeout=60`, lock, 경고 로깅 추가. 로컬/NAS 각 2개 파일 확인, NAS dry-run 0.
+- **RAG 인덱싱 개선 (2026-05-20)**: 동기화 후 인덱싱을 백그라운드로 전환. 파일별 성공/실패 마커 즉시 저장, 임베딩/VectorStore 배치 처리와 진행 로그 추가. 5/20 변경분 45개 인덱싱 성공, 실패 0.
