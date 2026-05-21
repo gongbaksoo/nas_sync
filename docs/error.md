@@ -210,3 +210,30 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
   - 5/20 변경분 인덱싱: `45 성공, 0 실패`
   - 재실행 시 `변경된 파일 없음 — 인덱싱 건너뜀`
 - **교훈**: 장시간 배치 작업은 파일 단위 체크포인트와 청크 단위 진행 로그가 있어야 운영 중단/재시도 비용을 통제할 수 있음.
+
+---
+
+## ERR-012: Google Drive File Provider mmap 재발로 rclone 전환
+
+- **발생일**: 2026-05-21
+- **증상**:
+  - 자동 실행은 정상 동작했지만 `260521` 오늘 폴더가 로컬/NAS에 비어 있음
+  - 로그에 5/20 문제 파일 및 Screen Shot 파일에서 `mmap: Resource deadlock avoided`가 반복됨
+  - File Provider 경로 기반 `rsync`/파일 접근이 특정 파일에서 깨지면 이후 날짜 폴더 보강도 불안정해짐
+- **원인**:
+  - Google Drive Desktop/File Provider 경로는 로컬 파일시스템처럼 보이지만 실제 파일 fetch/placeholder 처리가 개입됨
+  - `rsync`가 해당 경로를 순회하거나 파일 내용을 읽을 때 File Provider의 mmap 오류에 영향을 받음
+- **해결**:
+  - rclone 설치 및 Google Drive API 기반 당일 폴더 복사 도입
+  - `Work Space` 폴더 ID `15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`를 `gdrive_nas:` remote root로 사용
+  - `Screen Shot` 폴더 ID `1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`를 `gdrive_screenshots:` remote root로 사용
+  - rclone 미설정/실패 시 기존 File Provider `cp -p` fallback 유지
+- **영향 파일**:
+  - `~/sync_to_nas.sh`
+  - `scripts/sync_to_nas.sh`
+  - `docs/01-plan/features/gdrive-to-sync.plan.md`
+  - `docs/02-design/features/gdrive-rclone-sync.design.md`
+- **검증**:
+  - Google Drive/로컬/NAS `260521` 파일 수 일치 확인 대상
+  - NAS dry-run `0` 확인 대상
+- **교훈**: Google Drive Desktop 경로는 백업의 1차 소스로 신뢰하기 어렵다. API 기반 복사를 primary로 두고 File Provider는 fallback으로만 사용해야 한다.

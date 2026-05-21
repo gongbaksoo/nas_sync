@@ -50,8 +50,11 @@
 - SMB 권한 메타데이터 차이는 동기화 변경으로 보지 않음 (NAS rsync는 권한/디렉토리 시간 보존 제외)
 - RAG 인덱싱은 동기화 후 백그라운드 실행하며 중복 실행은 건너뜀 (`~/.sync_nas_index.log`)
 - 중복 동기화 방지를 위해 `~/.sync_nas.lock` 락 디렉토리를 사용함
-- Google Drive/NAS rsync는 `--timeout=60`으로 무한 대기 방지
-- Google Drive File Provider가 큰 트리 스캔에서 당일 폴더를 놓치는 경우를 보강하기 위해 Download Backup/YYYY/YYMM/YYMMDD 폴더를 전체 스캔보다 먼저 별도 재동기화함
+- Google Drive 당일 Download Backup/YYYY/YYMM/YYMMDD 폴더는 rclone Google Drive API로 우선 복사함
+- rclone remote 이름은 `gdrive_nas:`이고, root folder는 Work Space (`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)
+- Screen Shot은 `gdrive_screenshots:` remote를 사용하고, root folder는 Screen Shot (`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)
+- rclone 미설정/실패 시 Google Drive File Provider 경로에서 `cp -p` fallback 복사
+- NAS rsync는 `--timeout=60`으로 무한 대기 방지
 - NAS 미연결 시: open smb:// 로 재연결 시도 → 실패 시 로그 기록 후 다음 스케줄 대기
 - 알림: 로그 파일만 (~/.sync_nas.log)
 
@@ -63,6 +66,15 @@
 
 # 로그 확인
 tail -20 ~/.sync_nas.log
+
+# rclone remote 확인
+rclone lsd gdrive_nas:
+
+# 오늘 Download Backup API 목록 확인
+rclone lsf gdrive_nas:"Download Backup/$(date '+%Y')/$(date '+%y%m')/$(date '+%y%m%d')"
+
+# Screen Shot API 목록 확인
+rclone lsf gdrive_screenshots:
 
 # 자동 동기화 중지
 launchctl unload ~/Library/LaunchAgents/com.sync.nas.plist

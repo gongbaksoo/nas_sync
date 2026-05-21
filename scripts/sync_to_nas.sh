@@ -9,6 +9,9 @@ NAS_MOUNT="/Volumes/personal_folder/Macmini_backup/"
 GDRIVE="$HOME/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac"
 LOG="$HOME/.sync_nas.log"
 LOCK_DIR="$HOME/.sync_nas.lock"
+RCLONE_REMOTE="gdrive_nas:"
+RCLONE_SCREENSHOT_REMOTE="gdrive_screenshots:"
+RCLONE_BIN="$(command -v rclone || true)"
 
 # rsync 확장자 필터 (공통)
 RSYNC_FILTERS=(
@@ -24,11 +27,153 @@ RSYNC_FILTERS=(
     --exclude='*'
 )
 
-GDRIVE_RSYNC_OPTS=(-avi --timeout=60)
 NAS_RSYNC_OPTS=(-rlti --omit-dir-times --timeout=60)
+RCLONE_FILTERS=(
+    --filter='- ~$*' --filter='- .DS_Store' --filter='- Thumbs.db'
+    --filter='+ *.xlsx' --filter='+ *.xls' --filter='+ *.xlsb'
+    --filter='+ *.csv'
+    --filter='+ *.pptx' --filter='+ *.ppt'
+    --filter='+ *.pdf' --filter='+ *.zip'
+    --filter='+ *.html' --filter='+ *.htm'
+    --filter='+ *.jpg' --filter='+ *.jpeg'
+    --filter='+ *.png' --filter='+ *.gif' --filter='+ *.webp'
+    --filter='+ */'
+    --filter='- *'
+)
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"
+}
+
+is_supported_file() {
+    local fname="$1"
+    case "$fname" in
+        .DS_Store|Thumbs.db|~\$*) return 1 ;;
+    esac
+
+    case "${fname##*.}" in
+        xlsx|xls|xlsb|csv|pptx|ppt|pdf|zip|html|htm|jpg|jpeg|png|gif|webp) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+needs_copy() {
+    local src="$1"
+    local dst="$2"
+
+    if [ ! -f "$dst" ]; then
+        return 0
+    fi
+
+    local src_size dst_size src_mtime dst_mtime
+    src_size=$(stat -f '%z' "$src" 2>/dev/null) || return 0
+    dst_size=$(stat -f '%z' "$dst" 2>/dev/null) || return 0
+    src_mtime=$(stat -f '%m' "$src" 2>/dev/null) || return 0
+    dst_mtime=$(stat -f '%m' "$dst" 2>/dev/null) || return 0
+
+    [ "$src_size" != "$dst_size" ] || [ "$src_mtime" -gt "$dst_mtime" ]
+}
+
+copy_gdrive_tree() {
+    local src_dir="$1"
+    local dst_dir="$2"
+    local label="$3"
+    local copied=0
+    local failed=0
+    local src_file fname rel dst_file
+
+    if [ ! -d "$src_dir" ]; then
+        return
+    fi
+
+    mkdir -p "$dst_dir"
+
+    while IFS= read -r -d '' src_file; do
+        fname=${src_file##*/}
+        if ! is_supported_file "$fname"; then
+            continue
+        fi
+
+        rel=${src_file#"$src_dir"/}
+        dst_file="$dst_dir/$rel"
+        mkdir -p "$(dirname "$dst_file")"
+
+        if needs_copy "$src_file" "$dst_file"; then
+            if cp -p "$src_file" "$dst_file" 2>/tmp/sync_nas_cp_error.$$; then
+                copied=$((copied + 1))
+            else
+                failed=$((failed + 1))
+                log "WARN: Google Drive ${label} 파일 복사 실패: $src_file ($(cat /tmp/sync_nas_cp_error.$$ 2>/dev/null | head -1))"
+            fi
+            rm -f /tmp/sync_nas_cp_error.$$
+        fi
+    done < <(find "$src_dir" -type f -print0 2>/dev/null)
+
+    GDRIVE_COUNT=$((GDRIVE_COUNT + copied))
+    if [ "$failed" -gt 0 ]; then
+        log "WARN: Google Drive ${label} 복사 실패 ${failed}개"
+    fi
+}
+
+count_supported_files() {
+    local dir="$1"
+    if [ ! -d "$dir" ]; then
+        echo 0
+        return
+    fi
+
+    find "$dir" -type f \( \
+        -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsb" -o \
+        -name "*.csv" -o \
+        -name "*.pptx" -o -name "*.ppt" -o \
+        -name "*.pdf" -o -name "*.zip" -o -name "*.html" -o -name "*.htm" -o \
+        -name "*.jpg" -o -name "*.jpeg" -o \
+        -name "*.png" -o -name "*.gif" -o -name "*.webp" \
+    \) ! -name "~$*" ! -name ".DS_Store" ! -name "Thumbs.db" | wc -l | tr -d ' '
+}
+
+copy_with_rclone() {
+    local remote="$1"
+    local remote_path="$2"
+    local dst_dir="$3"
+    local label="$4"
+    local before after copied
+    local out_file="/tmp/sync_nas_rclone.$$"
+
+    if [ -z "$RCLONE_BIN" ]; then
+        log "WARN: rclone 미설치 - Google Drive ${label} fallback 사용"
+        return 1
+    fi
+
+    if ! "$RCLONE_BIN" listremotes | grep -Fxq "$remote"; then
+        log "WARN: rclone remote($remote) 미설정 - Google Drive ${label} fallback 사용"
+        return 1
+    fi
+
+    mkdir -p "$dst_dir"
+    before=$(count_supported_files "$dst_dir")
+
+    if "$RCLONE_BIN" copy "${remote}${remote_path}" "$dst_dir" \
+        "${RCLONE_FILTERS[@]}" \
+        --fast-list \
+        --retries 3 \
+        --low-level-retries 10 \
+        --stats-one-line \
+        --log-level INFO >"$out_file" 2>&1; then
+        after=$(count_supported_files "$dst_dir")
+        copied=$((after - before))
+        if [ "$copied" -lt 0 ]; then
+            copied=0
+        fi
+        GDRIVE_COUNT=$((GDRIVE_COUNT + copied))
+        log "OK: rclone Google Drive ${label} 복사 완료 (${copied}개 증가)"
+        rm -f "$out_file"
+        return 0
+    fi
+
+    log "WARN: rclone Google Drive ${label} 복사 실패(exit: $?): $(head -3 "$out_file" | tr '\n' ' ')"
+    rm -f "$out_file"
+    return 1
 }
 
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -48,37 +193,23 @@ if [ -d "$GDRIVE" ]; then
     TODAY_YMD=$(date '+%y%m%d')
     TODAY_GDRIVE="$GDRIVE/Work Space/Download Backup/$TODAY_YEAR/$TODAY_YM/$TODAY_YMD"
     TODAY_SYNC="$SOURCE/Download Backup/$TODAY_YEAR/$TODAY_YM/$TODAY_YMD"
-    if [ -d "$TODAY_GDRIVE" ]; then
-        mkdir -p "$TODAY_SYNC"
-        GDRIVE_OUT=$(rsync "${GDRIVE_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$TODAY_GDRIVE/" "$TODAY_SYNC/" 2>&1)
-        GDRIVE_STATUS=$?
-        CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
-        GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
-        if [ "$GDRIVE_STATUS" -ne 0 ] || echo "$GDRIVE_OUT" | grep -qiE "error|failed|cannot|denied"; then
-            log "WARN: Google Drive 당일 폴더 복사 경고(exit: $GDRIVE_STATUS): $(echo "$GDRIVE_OUT" | grep -iE "error|failed|cannot|denied" | head -3 | tr '\n' ' ')"
-        fi
+    TODAY_RCLONE="Download Backup/$TODAY_YEAR/$TODAY_YM/$TODAY_YMD"
+    TODAY_RCLONE_OK=0
+    if copy_with_rclone "$RCLONE_REMOTE" "$TODAY_RCLONE" "$TODAY_SYNC" "당일 폴더"; then
+        TODAY_RCLONE_OK=1
+    else
+        copy_gdrive_tree "$TODAY_GDRIVE" "$TODAY_SYNC" "당일 폴더"
     fi
 
-    # Work Space → sync/
-    if [ -d "$GDRIVE/Work Space" ]; then
-        GDRIVE_OUT=$(rsync "${GDRIVE_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$GDRIVE/Work Space/" "$SOURCE" 2>&1)
-        GDRIVE_STATUS=$?
-        CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
-        GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
-        if [ "$GDRIVE_STATUS" -ne 0 ] || echo "$GDRIVE_OUT" | grep -qiE "error|failed|cannot|denied"; then
-            log "WARN: Google Drive Work Space 복사 경고(exit: $GDRIVE_STATUS): $(echo "$GDRIVE_OUT" | grep -iE "error|failed|cannot|denied" | head -3 | tr '\n' ' ')"
-        fi
+    # Work Space → sync/ (rclone 당일 폴더 실패 시에만 File Provider 전체 fallback)
+    if [ "$TODAY_RCLONE_OK" -ne 1 ] && [ -d "$GDRIVE/Work Space" ]; then
+        copy_gdrive_tree "$GDRIVE/Work Space" "$SOURCE" "Work Space"
     fi
 
     # Screen Shot → sync/Screen Shot/
     if [ -d "$GDRIVE/Screen Shot" ]; then
-        mkdir -p "$SOURCE/Screen Shot"
-        GDRIVE_OUT=$(rsync "${GDRIVE_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$GDRIVE/Screen Shot/" "$SOURCE/Screen Shot/" 2>&1)
-        GDRIVE_STATUS=$?
-        CNT=$(echo "$GDRIVE_OUT" | grep -c "^>" || true)
-        GDRIVE_COUNT=$((GDRIVE_COUNT + CNT))
-        if [ "$GDRIVE_STATUS" -ne 0 ] || echo "$GDRIVE_OUT" | grep -qiE "error|failed|cannot|denied|timeout"; then
-            log "WARN: Google Drive Screen Shot 복사 경고(exit: $GDRIVE_STATUS): $(echo "$GDRIVE_OUT" | grep -iE "error|failed|cannot|denied|timeout" | head -3 | tr '\n' ' ')"
+        if ! copy_with_rclone "$RCLONE_SCREENSHOT_REMOTE" "" "$SOURCE/Screen Shot" "Screen Shot"; then
+            copy_gdrive_tree "$GDRIVE/Screen Shot" "$SOURCE/Screen Shot" "Screen Shot"
         fi
     fi
 

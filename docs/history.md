@@ -173,6 +173,30 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-05-21: rclone 기반 Google Drive API 동기화 도입
+
+### 이슈
+- 5/21 자동 실행이 정상 동작했지만 `260521` 오늘 폴더가 로컬/NAS에 비어 있음
+- Google Drive File Provider 경로에서 `mmap: Resource deadlock avoided`가 계속 재발
+- File Provider 기반 `rsync`/복사 보강만으로는 날짜 폴더 누락을 안정적으로 막기 어려움
+
+### 조치
+- rclone 1.74.1 설치
+- Google Drive 로컬 xattr에서 `Work Space` 폴더 ID `15FxOAg39qbr7jLOtEMceEyFXJ34H24TW` 확인
+- Google Drive 로컬 xattr에서 `Screen Shot` 폴더 ID `1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf` 확인
+- Google Drive connector로 해당 ID가 `Work Space` 폴더임을 검증
+- `sync_to_nas.sh`에 rclone 당일 폴더 및 Screen Shot 우선 복사 로직 추가
+- rclone 미설정/실패 시 기존 File Provider `cp -p` fallback 유지
+- `gdrive-rclone-sync.design.md` 신규 작성
+
+### 검증 기준
+- `rclone lsf gdrive_nas:"Download Backup/YYYY/YYMM/YYMMDD"`로 API 기준 파일 수 확인
+- `~/sync_to_nas.sh` 수동 실행 후 로컬/NAS 파일 수 비교
+- NAS dry-run 0 확인
+- RAG 인덱싱 재실행 시 변경 없음 확인
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -187,6 +211,7 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | MCP 연결 | ✅ 동작 중 |
 | NAS 전체 인덱싱 | ✅ 동작 중 (`~/.nas_rag`) |
 | Google Drive → sync | ✅ 완료 (xlsb/zip/csv/html 포함, 당일 폴더 우선 보강) |
+| Google Drive API 동기화 | ✅ rclone primary + File Provider fallback 구조 |
 | RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록 |
 | 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅 |
 
