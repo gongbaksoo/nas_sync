@@ -11,7 +11,27 @@ LOG="$HOME/.sync_nas.log"
 LOCK_DIR="$HOME/.sync_nas.lock"
 RCLONE_REMOTE="gdrive_nas:"
 RCLONE_SCREENSHOT_REMOTE="gdrive_screenshots:"
-RCLONE_BIN="$(command -v rclone || true)"
+PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+find_rclone() {
+    local candidate
+
+    if candidate="$(command -v rclone 2>/dev/null)"; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+
+    for candidate in /opt/homebrew/bin/rclone /usr/local/bin/rclone; do
+        if [ -x "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+RCLONE_BIN="$(find_rclone || true)"
 
 # rsync 확장자 필터 (공통)
 RSYNC_FILTERS=(

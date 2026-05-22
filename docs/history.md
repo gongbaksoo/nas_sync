@@ -197,6 +197,31 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-05-22: launchd rclone PATH 보정 및 10시/11시 검증
+
+### 이슈
+- 07~09시 정기 실행에서 `rclone 미설치` 경고가 반복됨
+- rclone은 `/opt/homebrew/bin/rclone`에 설치되어 있었지만 launchd 환경 PATH에 Homebrew 경로가 없어 탐색 실패
+- File Provider fallback으로 떨어진 Screen Shot 복사에서 `Resource deadlock avoided`가 다시 발생
+
+### 조치
+- `sync_to_nas.sh` 시작부에 `/opt/homebrew/bin:/usr/local/bin` PATH 보정 추가
+- `find_rclone()`을 추가하여 `command -v rclone` 실패 시 `/opt/homebrew/bin/rclone`, `/usr/local/bin/rclone`을 직접 확인
+- 운영 스크립트(`~/sync_to_nas.sh`)와 repository 사본(`scripts/sync_to_nas.sh`) 모두 동일하게 수정
+- plan/design/error/history 문서에 5/22 운영 이슈와 검증 결과 반영
+
+### 검증
+- `bash -n ~/sync_to_nas.sh`, `bash -n scripts/sync_to_nas.sh` 통과
+- 수동 실행 후 `260522` 당일 폴더 local/NAS 각 23개 확인
+- NAS dry-run 0 확인
+- 수동 RAG 인덱싱: 31개 변경 감지, 16 성공, 15 실패
+- RAG 재실행: `변경된 파일 없음 — 인덱싱 건너뜀`
+- 10:00 정기 실행: rclone 당일 폴더 0개 증가, Screen Shot 6개 증가, NAS 전송 6개
+- 11:00 정기 실행: rclone 당일 폴더 0개 증가, Screen Shot 0개 증가, NAS 전송 0개
+- 10시/11시 로그에서 `rclone 미설치`와 `Resource deadlock avoided` 재발 없음
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -213,7 +238,7 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | Google Drive → sync | ✅ 완료 (xlsb/zip/csv/html 포함, 당일 폴더 우선 보강) |
 | Google Drive API 동기화 | ✅ rclone primary + File Provider fallback 구조 |
 | RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록 |
-| 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅 |
+| 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅, launchd PATH 보정 |
 
 ### 다음 작업
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현

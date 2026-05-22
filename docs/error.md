@@ -237,3 +237,35 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
   - Google Drive/로컬/NAS `260521` 파일 수 일치 확인 대상
   - NAS dry-run `0` 확인 대상
 - **교훈**: Google Drive Desktop 경로는 백업의 1차 소스로 신뢰하기 어렵다. API 기반 복사를 primary로 두고 File Provider는 fallback으로만 사용해야 한다.
+
+---
+
+## ERR-013: launchd 환경에서 rclone PATH 탐색 실패
+
+- **발생일**: 2026-05-22
+- **증상**:
+  - 07:00, 08:00, 09:00 정기 실행에서 `WARN: rclone 미설치 - Google Drive ... fallback 사용`이 반복됨
+  - 실제 rclone은 `/opt/homebrew/bin/rclone`에 설치되어 있었음
+  - fallback으로 Google Drive File Provider 경로를 읽으면서 Screen Shot 파일에서 `fcopyfile failed: Resource deadlock avoided`가 재발
+- **원인**:
+  - launchd가 실행하는 `/bin/bash` 환경은 터미널과 달리 Homebrew 경로(`/opt/homebrew/bin`)를 PATH에 포함하지 않음
+  - 기존 스크립트가 `RCLONE_BIN="$(command -v rclone || true)"`만 사용해 정기 실행 환경에서 rclone을 찾지 못함
+- **해결**:
+  - `sync_to_nas.sh` 시작부에서 PATH에 `/opt/homebrew/bin:/usr/local/bin`을 명시적으로 추가
+  - `find_rclone()`을 추가해 `command -v rclone` 실패 시 `/opt/homebrew/bin/rclone`, `/usr/local/bin/rclone` 절대경로를 직접 확인
+  - 운영 스크립트(`~/sync_to_nas.sh`)와 repository 사본(`scripts/sync_to_nas.sh`) 모두 동일하게 수정
+- **영향 파일**:
+  - `~/sync_to_nas.sh`
+  - `scripts/sync_to_nas.sh`
+  - `docs/01-plan/features/gdrive-to-sync.plan.md`
+  - `docs/02-design/features/gdrive-rclone-sync.design.md`
+  - `docs/error.md`
+  - `docs/history.md`
+- **검증**:
+  - 수동 실행 후 2026-05-22 `260522` 당일 폴더 local/NAS 각 23개 확인
+  - NAS dry-run 결과 0
+  - 수동 RAG 인덱싱 `16 성공, 15 실패`; 실패는 기존 `.xls` 파서 이슈
+  - 10:00 정기 실행: rclone 당일 폴더 성공, Screen Shot 6개 증가, NAS 전송 6개
+  - 11:00 정기 실행: rclone 당일 폴더 성공, Screen Shot 0개 증가, NAS 전송 0개
+  - 10시/11시 로그에서 `rclone 미설치`와 `Resource deadlock avoided` 재발 없음
+- **교훈**: launchd 작업은 터미널 PATH를 신뢰하면 안 된다. 외부 도구는 스크립트 내부 PATH 보정 또는 절대경로 탐색을 기본값으로 둬야 한다.

@@ -53,6 +53,7 @@
 - Google Drive 당일 Download Backup/YYYY/YYMM/YYMMDD 폴더는 rclone Google Drive API로 우선 복사함
 - rclone remote 이름은 `gdrive_nas:`이고, root folder는 Work Space (`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)
 - Screen Shot은 `gdrive_screenshots:` remote를 사용하고, root folder는 Screen Shot (`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)
+- launchd 환경에서도 rclone을 찾도록 스크립트 내부에서 `/opt/homebrew/bin`, `/usr/local/bin` PATH와 절대경로 후보를 확인함
 - rclone 미설정/실패 시 Google Drive File Provider 경로에서 `cp -p` fallback 복사
 - NAS rsync는 `--timeout=60`으로 무한 대기 방지
 - NAS 미연결 시: open smb:// 로 재연결 시도 → 실패 시 로그 기록 후 다음 스케줄 대기

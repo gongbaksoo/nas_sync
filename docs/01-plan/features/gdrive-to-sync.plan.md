@@ -68,6 +68,7 @@
 | NAS rsync timeout | `--timeout=60`으로 SMB hang 방지 |
 | 당일 폴더 우선 복사 | `Download Backup/YYYY/YYMM/YYMMDD`를 API 기반으로 먼저 복사 |
 | 오류 기록 | rclone exit code/stderr 요약 및 fallback 실행 여부를 WARN 로그로 기록 |
+| launchd PATH 보정 | 정기 실행 환경에서도 Homebrew rclone을 찾도록 `/opt/homebrew/bin`, `/usr/local/bin`을 PATH와 절대경로 후보에 포함 |
 | 인덱싱 | 동기화 완료 후 `auto_index.py`를 백그라운드 실행, 이미 실행 중이면 skip |
 
 ## 6. YAGNI Review
@@ -104,6 +105,7 @@
 | Google Drive File Provider가 특정 큰 파일에서 mmap 오류 | 당일 폴더를 rclone API 복사로 우선 처리하고 File Provider는 fallback으로만 사용 |
 | 이전 실행이 장시간 점유 | lock으로 중복 실행을 skip하고 rsync timeout으로 hang 완화 |
 | rclone OAuth/remote 설정 누락 | WARN 로그를 남기고 기존 File Provider fallback으로 동작 |
+| launchd가 Homebrew PATH를 상속하지 못함 | 스크립트 내부에서 PATH를 보정하고 `/opt/homebrew/bin/rclone`, `/usr/local/bin/rclone`을 직접 탐색 |
 
 ## 9. 구현 결과
 
@@ -122,3 +124,4 @@
 - **5/20 보강 (2026-05-20 15:27 KST)**: 5/19 큰 `.xlsb`에서 `mmap: Resource deadlock avoided`가 반복되고 오늘 `260520` 폴더가 로컬/NAS에 누락됨. 당일 폴더 우선 복사, `--timeout=60`, lock, 경고 로깅 추가. 로컬/NAS 각 2개 파일 확인, NAS dry-run 0.
 - **RAG 인덱싱 개선 (2026-05-20)**: 동기화 후 인덱싱을 백그라운드로 전환. 파일별 성공/실패 마커 즉시 저장, 임베딩/VectorStore 배치 처리와 진행 로그 추가. 5/20 변경분 45개 인덱싱 성공, 실패 0.
 - **rclone 전환 (2026-05-21)**: Work Space 폴더 ID(`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)를 root로 하는 `gdrive_nas` remote와 Screen Shot 폴더 ID(`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)를 root로 하는 `gdrive_screenshots` remote를 도입. 당일 `Download Backup/YYYY/YYMM/YYMMDD`와 Screen Shot은 rclone API 복사를 우선 사용하고, 실패 시 File Provider `cp -p` fallback을 사용.
+- **launchd PATH 보정 (2026-05-22)**: 07~09시 정기 실행에서 launchd가 Homebrew PATH를 상속하지 못해 `rclone 미설치`로 fallback된 문제 수정. 스크립트 내부 PATH와 절대경로 탐색을 추가했고 10시/11시 정기 실행에서 rclone primary 경로 정상 사용 확인.
