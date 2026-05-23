@@ -2,7 +2,7 @@
 
 > 생성일: 2026-05-09
 > Phase: Plan (Plan Plus)
-> 이전 단계: nas-sync.plan.md (동기화 시스템 완료)
+> 이전 단계: docs/03-sop/nas-sync-handoff.md (동기화 시스템 완료)
 
 ---
 
@@ -159,9 +159,12 @@ nas_sync/
 │   ├── test_search.py
 │   └── test_integration.py
 ├── docs/
-│   └── 01-plan/features/
-│       └── nas-agentic-rag.plan.md  # 이 문서
-└── Agentic_RAG_구축_실전_가이드.md   # 리서치 레퍼런스
+│   ├── 01-plan/features/
+│   │   └── nas-agentic-rag.plan.md  # 이 문서
+│   ├── 03-sop/
+│   │   └── nas-sync-handoff.md      # 운영 인수인계
+│   └── 04-references/
+│       └── agentic-rag-guide.md     # 리서치 레퍼런스
 ```
 
 ---
@@ -372,7 +375,7 @@ Excel:  파일 시그니처 판별 → pandas(openpyxl/xlrd/read_html/csv fallba
 
 ## 10. Research References
 
-리서치 상세 내용: `Agentic_RAG_구축_실전_가이드.md`
+리서치 상세 내용: `docs/04-references/agentic-rag-guide.md`
 
 ### 핵심 레퍼런스
 - [Agentic RAG Survey - arXiv](https://arxiv.org/abs/2501.09136)

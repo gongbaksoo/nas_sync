@@ -8,7 +8,7 @@
 | NAS | UGREEN DXP2800-DBEC (유선) |
 | NAS IP | 192.168.0.235 |
 | SMB 주소 | smb://192.168.0.235/personal_folder |
-| NAS 계정 | gongbaksoo / Rkawlwntpdy1212!! |
+| NAS 계정 | gongbaksoo / macOS Keychain 저장 |
 | OS | macOS Darwin 25.3.0 |
 | 사용자 | j_mac_mini |
 
@@ -23,7 +23,9 @@
 | 로컬 동기화 폴더 | ~/Desktop/sync/ | 생성 완료 |
 | 하위 폴더 | ~/Desktop/sync/문서/, ~/Desktop/sync/상품이미지/ | 생성 완료 (사용 선택사항) |
 | 로그 파일 | ~/.sync_nas.log | 자동 생성됨 |
-| Plan 문서 | ~/docs/01-plan/features/nas-sync.plan.md | 생성 완료 |
+| 운영 인수인계 문서 | docs/03-sop/nas-sync-handoff.md | 생성 완료 |
+| RAG Plan 문서 | docs/01-plan/features/nas-agentic-rag.plan.md | 생성 완료 |
+| Google Drive Plan 문서 | docs/01-plan/features/gdrive-to-sync.plan.md | 생성 완료 |
 
 ### NAS 폴더 구조
 
@@ -163,8 +165,19 @@ Finder에서 NAS 연결 시 "키체인에 비밀번호 기억" 체크 필요
 | AI 검색용 manifest.jsonl | 미구현 - 설계 합의 중 |
 | 대용량 초기 마이그레이션 | 미착수 - 추후 진행 |
 
-## 7. PDCA 상태
+## 7. 관련 문서
+
+- 문서 색인: `docs/README.md`
+- RAG Plan: `docs/01-plan/features/nas-agentic-rag.plan.md`
+- RAG Design: `docs/02-design/features/nas-agentic-rag.design.md`
+- Google Drive Plan: `docs/01-plan/features/gdrive-to-sync.plan.md`
+- rclone Design: `docs/02-design/features/gdrive-rclone-sync.design.md`
+- RAG 리서치 레퍼런스: `docs/04-references/agentic-rag-guide.md`
+- 장애 이력: `docs/error.md`
+- 작업 이력: `docs/history.md`
+
+## 8. PDCA 상태
 
 - Phase: Plan (완료)
-- 문서: docs/01-plan/features/nas-sync.plan.md
+- 문서: docs/03-sop/nas-sync-handoff.md
 - 다음 단계: /pdca design nas-sync → 자동 분류 로직 설계 확정 후 구현

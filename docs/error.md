@@ -153,7 +153,7 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
   - `~/sync_to_nas.sh`
   - `scripts/sync_to_nas.sh` (repository 보관용 사본)
   - `docs/01-plan/features/gdrive-to-sync.plan.md`
-  - `NAS_동기화_인수인계.md`
+  - `docs/03-sop/nas-sync-handoff.md`
 - **검증**:
   - NAS dry-run 결과 `0`
   - 2026-05-20 `260520` 로컬/NAS 파일 수 각 `2`
@@ -178,7 +178,7 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
 - **영향 파일**:
   - `~/sync_to_nas.sh`
   - `scripts/sync_to_nas.sh`
-  - `NAS_동기화_인수인계.md`
+  - `docs/03-sop/nas-sync-handoff.md`
 - **검증**:
   - 수정 후 수동 실행 정상 종료
   - `launchctl list`에서 `com.sync.nas` 로드 상태 확인

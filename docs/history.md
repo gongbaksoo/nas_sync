@@ -7,8 +7,8 @@ NAS Agentic RAG 프로젝트 개발 이력.
 ## 2026-05-09: Plan Plus + Design
 
 ### Plan Phase (Plan Plus)
-- 인수인계서(`NAS_동기화_인수인계.md`) 분석
-- 심층 리서치 수행 → `Agentic_RAG_구축_실전_가이드.md` 생성 (800줄+)
+- 인수인계서(`docs/03-sop/nas-sync-handoff.md`) 분석
+- 심층 리서치 수행 → `docs/04-references/agentic-rag-guide.md` 생성 (800줄+)
   - RAG 실전 경험담 (100+ 팀 베스트 프랙티스)
   - Agentic RAG 아키텍처 패턴 5가지
   - 로컬/NAS RAG 스택 비교 (LanceDB vs ChromaDB vs Qdrant)
@@ -246,6 +246,21 @@ NAS Agentic RAG 프로젝트 개발 이력.
 - DuckDB 메타데이터: `.xls` source 15개, table 26개, duplicate table name 0개
 - `py_compile` 통과
 - launchd plist 문법 확인 및 재로드 완료, Hour 23/0 트리거 로드 확인
+
+---
+
+## 2026-05-23: 문서 위치 통합
+
+### 조치
+- 루트에 있던 운영 인수인계 문서를 `docs/03-sop/nas-sync-handoff.md`로 이동
+- 루트에 있던 Agentic RAG 리서치 문서를 `docs/04-references/agentic-rag-guide.md`로 이동
+- `docs/README.md` 문서 색인 생성
+- plan/error/history 문서의 기존 루트 문서 경로를 새 `docs` 하위 경로로 갱신
+- 운영 인수인계 문서의 NAS 비밀번호 평문 표기를 제거하고 macOS Keychain 저장으로 정리
+
+### 결과
+- plan/design/SOP/reference/error/history 문서가 모두 `docs/` 하위에서 관리됨
+- 루트 디렉토리에는 프로젝트 코드와 설정만 남도록 정리
 
 ---
 
