@@ -6,6 +6,7 @@ from datetime import datetime
 import pandas as pd
 
 from mcp_rag_server.config import Config
+from mcp_rag_server.parsers.spreadsheet_loader import read_spreadsheet_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +26,12 @@ class ExcelParser:
         file_name = os.path.basename(file_path)
 
         try:
-            xls = pd.ExcelFile(file_path)
+            sheets = read_spreadsheet_sheets(file_path)
         except Exception as e:
             logger.error("Excel 파일 열기 실패: %s — %s", file_path, e)
             return []
 
-        for sheet_name in xls.sheet_names:
-            try:
-                df = pd.read_excel(file_path, sheet_name=sheet_name)
-            except Exception as e:
-                logger.warning("시트 '%s' 읽기 실패: %s", sheet_name, e)
-                continue
-
-            if df.empty:
-                continue
-
+        for sheet_name, df in sheets:
             # 1. 시트 요약 청크
             summary = self._create_summary(df, file_path, file_name, sheet_name)
             chunks.append(summary)
@@ -48,7 +40,7 @@ class ExcelParser:
             row_chunks = self._create_row_groups(df, file_path, file_name, sheet_name)
             chunks.extend(row_chunks)
 
-        logger.info("%s: %d 시트, %d 청크 생성", file_name, len(xls.sheet_names), len(chunks))
+        logger.info("%s: %d 시트, %d 청크 생성", file_name, len(sheets), len(chunks))
         return chunks
 
     def _create_summary(self, df: pd.DataFrame, file_path: str,

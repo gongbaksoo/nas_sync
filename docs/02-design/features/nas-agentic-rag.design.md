@@ -55,6 +55,7 @@ nas_sync/
 │   │   ├── __init__.py
 │   │   ├── pdf_parser.py      # [M7] Docling PDF 파싱
 │   │   ├── excel_parser.py    # [M8] pandas Excel 파싱
+│   │   ├── spreadsheet_loader.py # Excel/HTML-export .xls 로더
 │   │   └── image_parser.py    # [M9] EasyOCR 이미지 파싱
 │   ├── stores/
 │   │   ├── __init__.py
@@ -763,7 +764,14 @@ class PdfParser:
 
 ### 3.8 [M8] parsers/excel_parser.py — Excel 파싱
 
-**책임**: pandas로 시트별 파싱 → 요약 청크 + 행 그룹 청크 + DuckDB용 데이터
+**책임**: 파일 시그니처 기반 스프레드시트 로딩 → 요약 청크 + 행 그룹 청크 + DuckDB용 데이터
+
+**2026-05-23 보강**:
+- `.xlsx/.xlsm`: ZIP header 또는 확장자 기준 `openpyxl`
+- 진짜 `.xls`: CFB magic header 기준 `xlrd>=2.0.1`
+- HTML export `.xls`: `<html>`, `<table>`, `text/html` header 기준 `pandas.read_html`
+- 불명확한 `.xls`: Excel → HTML → CSV 순서 fallback
+- 빈 행/열 제거, MultiIndex 컬럼 flatten, 중복 컬럼명 suffix 처리
 
 ```python
 import os
@@ -785,7 +793,7 @@ class ExcelParser:
         file_name = os.path.basename(file_path)
 
         try:
-            xls = pd.ExcelFile(file_path)
+            sheets = read_spreadsheet_sheets(file_path)
         except Exception as e:
             return []
 
@@ -1083,7 +1091,7 @@ class VectorStore:
 
 ### 3.11 [M11] stores/sql_store.py — DuckDB 래퍼
 
-**책임**: Excel 데이터 SQL 저장/쿼리 (수치 검색용)
+**책임**: Excel/HTML-export `.xls` 데이터 SQL 저장/쿼리 (수치 검색용)
 
 ```python
 import duckdb
@@ -1109,7 +1117,9 @@ class SqlStore:
         # 파일명 + 시트명 → 안전한 테이블명
         safe = re.sub(r'[^\w]', '_', name)
         safe = re.sub(r'_+', '_', safe).strip('_')
-        return safe[:60]  # DuckDB 테이블명 길이 제한
+        digest = sha1(name.encode("utf-8")).hexdigest()[:10]
+        prefix = safe[:48].strip("_") or "table"
+        return f"{prefix}_{digest}"
 
     def import_excel(self, file_path: str):
         """Excel 파일의 모든 시트를 DuckDB 테이블로 임포트"""
@@ -1117,7 +1127,8 @@ class SqlStore:
         file_name = os.path.basename(file_path)
 
         try:
-            xls = pd.ExcelFile(file_path)
+            self._drop_existing_source_tables(conn, file_path)
+            sheets = read_spreadsheet_sheets(file_path)
             for sheet_name in xls.sheet_names:
                 df = pd.read_excel(file_path, sheet_name=sheet_name)
                 if df.empty:

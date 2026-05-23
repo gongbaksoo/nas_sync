@@ -269,3 +269,39 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
   - 11:00 정기 실행: rclone 당일 폴더 성공, Screen Shot 0개 증가, NAS 전송 0개
   - 10시/11시 로그에서 `rclone 미설치`와 `Resource deadlock avoided` 재발 없음
 - **교훈**: launchd 작업은 터미널 PATH를 신뢰하면 안 된다. 외부 도구는 스크립트 내부 PATH 보정 또는 절대경로 탐색을 기본값으로 둬야 한다.
+
+---
+
+## ERR-014: `.xls` 인덱싱 실패 및 DuckDB 테이블명 충돌 위험
+
+- **발생일**: 2026-05-22~2026-05-23
+- **증상**:
+  - 2026-05-22 자동/수동 RAG 인덱싱에서 `.xls` 파일 15개가 실패
+  - 오류 예시: `Pandas requires version '2.0.1' or newer of 'xlrd'`, `Excel file format cannot be determined, you must specify an engine manually`
+  - 일부 파일은 확장자는 `.xls`지만 실제 내용은 Excel BIFF가 아니라 HTML table export
+  - 긴 한글 파일명이 60자 기준으로 잘릴 경우 DuckDB 테이블명이 서로 충돌할 수 있는 위험 확인
+- **원인**:
+  - 가상환경의 `xlrd`가 1.2.0이라 pandas 3.0.2의 `.xls` 요구사항과 불일치
+  - 기존 `ExcelParser`/`SqlStore`가 `pd.ExcelFile(file_path)` 자동 추론에 의존해 HTML-export `.xls`를 처리하지 못함
+  - `SqlStore._sanitize_table_name()`이 앞 60자만 사용해 유사한 긴 파일명/시트명의 테이블명이 중복될 수 있음
+- **해결**:
+  - `xlrd>=2.0.1`, `lxml>=5.0.0`, `html5lib>=1.1` 의존성 추가
+  - `spreadsheet_loader.py` 추가: CFB magic header, ZIP header, HTML marker를 기준으로 Excel/HTML/CSV 로더 분기
+  - `ExcelParser`와 `SqlStore`가 동일한 `read_spreadsheet_sheets()` 로더를 사용하도록 변경
+  - DuckDB 테이블명에 SHA-1 기반 10자리 hash suffix 추가
+  - 동일 source_file 재임포트 시 기존 DuckDB 테이블과 `_metadata`를 먼저 삭제하도록 변경
+- **영향 파일**:
+  - `mcp_rag_server/parsers/spreadsheet_loader.py`
+  - `mcp_rag_server/parsers/excel_parser.py`
+  - `mcp_rag_server/stores/sql_store.py`
+  - `pyproject.toml`
+  - `docs/01-plan/features/nas-agentic-rag.plan.md`
+  - `docs/02-design/features/nas-agentic-rag.design.md`
+  - `docs/error.md`
+  - `docs/history.md`
+- **검증**:
+  - 2026-05-22 실패 `.xls` 15개 로더 단독 검증 모두 OK
+  - marker에서 해당 15개를 제거한 뒤 자동 인덱싱 재실행: `15 성공, 0 실패`
+  - 전체 재실행: `변경된 파일 없음 — 인덱싱 건너뜀`
+  - DuckDB 메타데이터: `.xls` source 15개, table 26개, duplicate table name 0개
+- **교훈**: 확장자만으로 Excel 형식을 판단하면 안 된다. 업무 시스템 export 파일은 `.xls` 확장자에 HTML table을 담는 경우가 많으므로 파일 헤더 기반 판별과 fallback이 필요하다.

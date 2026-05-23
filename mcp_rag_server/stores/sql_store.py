@@ -2,11 +2,12 @@
 import logging
 import os
 import re
+from hashlib import sha1
 
 import duckdb
-import pandas as pd
 
 from mcp_rag_server.config import Config
+from mcp_rag_server.parsers.spreadsheet_loader import read_spreadsheet_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,23 @@ class SqlStore:
         """테이블명으로 사용 가능한 형태로 변환"""
         safe = re.sub(r"[^\w]", "_", name)
         safe = re.sub(r"_+", "_", safe).strip("_")
-        return safe[:60]
+        digest = sha1(name.encode("utf-8")).hexdigest()[:10]
+        prefix = safe[:48].strip("_") or "table"
+        return f"{prefix}_{digest}"
+
+    def _drop_existing_source_tables(self, conn, file_path: str):
+        try:
+            rows = conn.execute(
+                "SELECT table_name FROM _metadata WHERE source_file = ?",
+                [file_path],
+            ).fetchall()
+        except duckdb.CatalogException:
+            return
+
+        for (table_name,) in rows:
+            conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+
+        conn.execute("DELETE FROM _metadata WHERE source_file = ?", [file_path])
 
     def import_excel(self, file_path: str):
         """Excel 파일의 모든 시트를 DuckDB 테이블로 임포트"""
@@ -32,17 +49,9 @@ class SqlStore:
         file_name = os.path.basename(file_path)
 
         try:
-            xls = pd.ExcelFile(file_path)
+            self._drop_existing_source_tables(conn, file_path)
             imported = 0
-            for sheet_name in xls.sheet_names:
-                try:
-                    df = pd.read_excel(file_path, sheet_name=sheet_name)
-                except Exception:
-                    continue
-
-                if df.empty:
-                    continue
-
+            for sheet_name, df in read_spreadsheet_sheets(file_path):
                 table_name = self._sanitize_table_name(f"{file_name}_{sheet_name}")
                 conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
                 conn.execute(f'CREATE TABLE "{table_name}" AS SELECT * FROM df')

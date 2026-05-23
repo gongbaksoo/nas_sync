@@ -2,7 +2,7 @@
 
 # === NAS 동기화 스크립트 ===
 # Google Drive → sync → UGREEN NAS (단방향)
-# 스케줄: 07:00~22:00 매시 정각
+# 스케줄: 07:00~24:00 매시 정각 (launchd Hour 0 포함)
 
 SOURCE="$HOME/Desktop/sync/"
 NAS_MOUNT="/Volumes/personal_folder/Macmini_backup/"

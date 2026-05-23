@@ -128,7 +128,7 @@ NAS에 동기화된 다양한 파일(Excel 마케팅/판매 분석, PDF 경비�
 | 벡터 DB | **LanceDB** | 서버리스/임베디드, Docker 불필요, NAS 경로 직접 사용, 디스크 네이티브 |
 | 임베딩 모델 | **BGE-m3-ko** (또는 upskyy/bge-m3-korean) | 한국어 파인튜닝, 로컬 실행, 무료, 1024차원, 8192 토큰 |
 | 문서 파싱 | **Docling** (IBM) | 테이블 인식 94%+, 완전 로컬, 무료 오픈소스 |
-| Excel 파싱 | **pandas** + Docling | 시트/테이블 단위 청킹, 요약 통계 자동 생성 |
+| Excel 파싱 | **pandas** + openpyxl/xlrd/read_html fallback | 시트/테이블 단위 청킹, 요약 통계 자동 생성, HTML-export `.xls` 대응 |
 | OCR | **EasyOCR** | 한국어 지원, 설치 간편 |
 | 보조 DB | **DuckDB** | Excel 수치 검색용, 임베디드, SQL 지원 |
 | 한국어 처리 | **Kiwi** (형태소 분석) + **KSS** (문장 분리) | 한국어 교착어 특성 대응 |
@@ -246,7 +246,7 @@ def smart_search(query: str) -> dict:
 NAS 파일 → 파일 타입 감지 → 파서 선택 → 청킹 → 임베딩 → 저장
 
 PDF:    Docling → 시맨틱 청킹 (512-1024 토큰, 50-100 오버랩) → BGE-m3-ko → LanceDB
-Excel:  pandas → 시트 요약 + 테이블 단위 청킹 (헤더 항상 포함) → BGE-m3-ko → LanceDB + DuckDB
+Excel:  파일 시그니처 판별 → pandas(openpyxl/xlrd/read_html/csv fallback) → 시트 요약 + 테이블 단위 청킹 (헤더 항상 포함) → BGE-m3-ko → LanceDB + DuckDB
 이미지: EasyOCR → OCR 텍스트 + 메타데이터 → BGE-m3-ko → LanceDB
 ```
 
@@ -345,7 +345,12 @@ Excel:  pandas → 시트 요약 + 테이블 단위 청킹 (헤더 항상 포함
 | Mac Mini 리소스 부족 (BGE-m3-ko ~2GB) | 낮음 | 높음 | M 시리즈 칩은 충분 | ✅ 문제없음 |
 | NAS 네트워크 I/O 지연 | 중간 | 중간 | 벡터 DB를 로컬에 저장 | ✅ **실제 발생** — SMB atomic rename 미지원으로 LanceDB NAS 저장 불가. `~/.nas_rag/`로 변경 |
 | 한국어 임베딩 품질 | 중간 | 중간 | BGE-m3-ko 테스트 | ✅ 검색 동작 확인, 추가 튜닝 필요 |
-| Excel 테이블 구조 다양성 | 높음 | 중간 | 청킹 전략 커스터마이징 | ✅ 시트 요약 + 행 그룹 청킹 적용 |
+| Excel 테이블 구조 다양성 | 높음 | 중간 | 청킹 전략 커스터마이징 | ✅ 시트 요약 + 행 그룹 청킹, HTML-export `.xls` fallback 적용 |
+| `.xls` 확장자와 실제 파일 형식 불일치 | 높음 | 중간 | 파일 헤더 기반 로더 분기 | ✅ CFB Excel, HTML table, CSV fallback 처리 |
+
+## 10. 운영 보강 이력
+
+- **2026-05-23 `.xls` 인덱싱 보강**: `.xls` 파일 헤더를 확인해 진짜 BIFF Excel은 `xlrd>=2.0.1`, HTML table export는 `pandas.read_html`, 불명확한 파일은 Excel/HTML/CSV 순서 fallback으로 처리한다. DuckDB 테이블명에는 해시 suffix를 붙여 긴 한글 파일명의 테이블명 충돌을 방지한다.
 | Docling 설치 복잡도 | 낮음 | 낮음 | pypdf 대체 | ✅ **실제 발생** — Python 3.14 미지원. pypdf 폴백 적용 |
 
 ---

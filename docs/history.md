@@ -222,6 +222,33 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-05-23: `.xls` 인덱싱 실패 해결 및 스케줄 24시 확장
+
+### 이슈
+- 2026-05-22 RAG 인덱싱에서 `.xls` 파일 15개가 실패
+- 일부 `.xls`는 진짜 Excel BIFF였고, 대부분은 HTML table export였음
+- pandas 3.0.2가 `.xls` 처리에 `xlrd>=2.0.1`을 요구했지만 가상환경에는 `xlrd 1.2.0`이 설치되어 있었음
+- DuckDB 테이블명이 긴 한글 파일명 앞부분 60자로 잘릴 경우 유사 파일명 간 충돌 위험 확인
+- 동기화 종료 시각을 22시에서 24시까지로 확장 요청
+
+### 조치
+- `spreadsheet_loader.py` 신규 추가
+- 파일 header 기반으로 진짜 `.xls`, `.xlsx`, HTML-export `.xls`, CSV fallback을 분기
+- `ExcelParser`와 `SqlStore`가 동일 로더를 사용하도록 변경
+- DuckDB 테이블명에 SHA-1 hash suffix를 붙이고, 동일 source_file 재임포트 전 기존 테이블/메타데이터 삭제
+- `pyproject.toml`에 `xlrd>=2.0.1`, `lxml>=5.0.0`, `html5lib>=1.1` 추가
+- 운영 launchd plist에 23:00, 00:00 실행 추가. SOP와 repository 스크립트 주석은 07:00~24:00으로 갱신
+
+### 검증
+- `.xls` 15개 로더 단독 검증 모두 OK
+- 자동 인덱싱 재처리: `15 성공, 0 실패`
+- 전체 재실행: `변경된 파일 없음 — 인덱싱 건너뜀`
+- DuckDB 메타데이터: `.xls` source 15개, table 26개, duplicate table name 0개
+- `py_compile` 통과
+- launchd plist 문법 확인 및 재로드 완료, Hour 23/0 트리거 로드 확인
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -237,8 +264,8 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | NAS 전체 인덱싱 | ✅ 동작 중 (`~/.nas_rag`) |
 | Google Drive → sync | ✅ 완료 (xlsb/zip/csv/html 포함, 당일 폴더 우선 보강) |
 | Google Drive API 동기화 | ✅ rclone primary + File Provider fallback 구조 |
-| RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록 |
-| 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅, launchd PATH 보정 |
+| RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록, `.xls`/HTML-export `.xls` 처리 |
+| 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅, launchd PATH 보정, 07~24시 정기 실행 |
 
 ### 다음 작업
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현
