@@ -264,6 +264,32 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-07-08: Slack 알림 추가 및 rsync timeout 해결
+
+### 이슈
+- 동기화 완료/실패 시 알림을 받을 수 없어 문제 발생 시 로그를 직접 확인해야 했음
+- 09시부터 매시간 rsync exit code 20(timeout)으로 NAS 동기화 실패 반복
+- 410개 파일(185MB)이 밀려 있었으며 `--timeout=60`이 SMB 대량 전송에 부족
+- timeout 해결 후 특수문자(★) 포함 파일명에서 SMB `mkstempat: Invalid argument` 오류 (exit 23)
+
+### 조치
+- Slack Incoming Webhook 알림 추가 (`notify_slack()` 함수)
+  - NAS 연결 실패 시: 🚨 알림
+  - rsync 실패 시: ❌ 알림
+  - 파일 전송 있을 때: ✅ 완료 요약 알림 (Google Drive 복사, NAS 전송, 로컬 정리 수)
+  - 변경 없을 때: 알림 안 보냄 (노이즈 방지)
+- rsync `--timeout=60` → `--timeout=300`으로 확대
+- rsync exit code 23(부분 전송 오류)을 성공으로 처리하고, 실패 파일 수를 WARN 로그에 기록
+
+### 검증
+- Slack 웹훅 테스트 메시지 정상 수신 (HTTP 200)
+- timeout 300초 변경 후 수동 실행: 밀린 파일 전송 완료
+- exit 23 허용 후 수동 실행: `전송: 1개, 실패: 1개 - 파일명 호환 문제` 정상 처리
+- 14일 경과 파일 2,368개 로컬 정리 완료
+- Slack 실패 알림 정상 수신 확인
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -280,7 +306,8 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | Google Drive → sync | ✅ 완료 (xlsb/zip/csv/html 포함, 당일 폴더 우선 보강) |
 | Google Drive API 동기화 | ✅ rclone primary + File Provider fallback 구조 |
 | RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록, `.xls`/HTML-export `.xls` 처리 |
-| 동기화 안전장치 | ✅ timeout 60초, lock, WARN 로깅, launchd PATH 보정, 07~24시 정기 실행 |
+| Slack 알림 | ✅ 완료/실패 시 Slack Incoming Webhook 알림 |
+| 동기화 안전장치 | ✅ timeout 300초, lock, WARN 로깅, launchd PATH 보정, exit 23 허용, 07~24시 정기 실행 |
 
 ### 다음 작업
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현

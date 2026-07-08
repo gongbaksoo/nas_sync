@@ -57,9 +57,11 @@
 - Screen Shot은 `gdrive_screenshots:` remote를 사용하고, root folder는 Screen Shot (`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)
 - launchd 환경에서도 rclone을 찾도록 스크립트 내부에서 `/opt/homebrew/bin`, `/usr/local/bin` PATH와 절대경로 후보를 확인함
 - rclone 미설정/실패 시 Google Drive File Provider 경로에서 `cp -p` fallback 복사
-- NAS rsync는 `--timeout=60`으로 무한 대기 방지
+- NAS rsync는 `--timeout=300`으로 무한 대기 방지 (대량 전송 시 60초 timeout 발생 이력으로 300초로 확대)
+- rsync exit code 23(부분 전송 오류)은 성공으로 처리하고 실패 파일 수를 WARN 로그에 기록 (SMB 한글 파일명 호환 문제)
 - NAS 미연결 시: open smb:// 로 재연결 시도 → 실패 시 로그 기록 후 다음 스케줄 대기
-- 알림: 로그 파일만 (~/.sync_nas.log)
+- Slack 알림: 동기화 완료(파일 전송 있을 때), NAS 연결 실패, rsync 실패 시 Slack Incoming Webhook으로 알림 전송
+- 로그 파일: `~/.sync_nas.log`
 
 ## 4. 운영 명령어
 
@@ -160,6 +162,7 @@ Finder에서 NAS 연결 시 "키체인에 비밀번호 기억" 체크 필요
 | 14일 후 로컬 파일 자동 삭제 | 구현 완료 |
 | NAS 미연결 시 재연결 | 구현 완료 |
 | 동기화 로그 기록 | 구현 완료 |
+| Slack 알림 (완료/실패) | 구현 완료 |
 | 데스크탑 sync 폴더에서 작업 | 구현 완료 |
 | NAS에서 자동 분류 (RAG 최적화) | 미구현 - 설계 합의 중 |
 | AI 검색용 manifest.jsonl | 미구현 - 설계 합의 중 |
