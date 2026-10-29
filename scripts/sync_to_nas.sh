@@ -9,6 +9,8 @@ NAS_MOUNT="/Volumes/personal_folder/Macmini_backup/"
 GDRIVE="$HOME/Library/CloudStorage/GoogleDrive-gongbaksoo@gmail.com/다른 컴퓨터/내 Mac"
 LOG="$HOME/.sync_nas.log"
 LOCK_DIR="$HOME/.sync_nas.lock"
+# NAS(SMB) 작업 제한 시간(초). SMB 마운트는 rclone에서 로컬 디스크로 취급되어 자체 타임아웃이 없음
+NAS_STEP_TIMEOUT=2700
 RCLONE_REMOTE="gdrive_nas:"
 RCLONE_SCREENSHOT_REMOTE="gdrive_screenshots:"
 PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
@@ -64,6 +66,55 @@ RCLONE_FILTERS=(
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG"
+}
+
+# 명령이 제한 시간을 넘기면 종료하고 124 반환 (macOS에는 timeout 명령이 없음)
+# SMB 응답이 끊기면 rclone이 무한 대기하고, launchd는 실행 중인 작업이 끝날 때까지 다음 스케줄을 건너뜀
+run_limited() {
+    local limit="$1" pid waited=0
+    shift
+    "$@" &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        if [ "$waited" -ge "$limit" ]; then
+            kill -TERM "$pid" 2>/dev/null
+            sleep 10
+            kill -KILL "$pid" 2>/dev/null
+            wait "$pid" 2>/dev/null
+            return 124
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    wait "$pid"
+}
+
+# 잠금에 PID를 기록하고, 그 프로세스가 없으면 남은 잠금을 해제 후 다시 잡음
+acquire_lock() {
+    local old_pid
+
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo $$ > "$LOCK_DIR/pid"
+        return 0
+    fi
+
+    old_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null)
+    if [ -n "$old_pid" ]; then
+        if ps -p "$old_pid" -o command= 2>/dev/null | grep -q "sync_to_nas"; then
+            return 1
+        fi
+    elif [ -z "$(find "$LOCK_DIR" -prune -mmin +10 2>/dev/null)" ]; then
+        # PID 기록 전이거나 이전 형식 잠금: 10분 이내면 실행 중으로 간주
+        return 1
+    fi
+
+    log "WARN: 남은 잠금 해제 (pid: ${old_pid:-기록 없음}, 실행 중인 동기화 없음)"
+    rm -rf "$LOCK_DIR"
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        echo $$ > "$LOCK_DIR/pid"
+        return 0
+    fi
+    return 1
 }
 
 is_supported_file() {
@@ -208,11 +259,11 @@ copy_with_rclone() {
     return 1
 }
 
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+if ! acquire_lock; then
     log "SKIP: 이전 동기화 프로세스가 아직 실행 중"
     exit 0
 fi
-trap 'rmdir "$LOCK_DIR"' EXIT
+trap 'rm -rf "$LOCK_DIR"' EXIT
 
 # === 0. Google Drive → sync 복사 ===
 if [ -d "$GDRIVE" ]; then
@@ -268,7 +319,7 @@ fi
 # rclone 우선: 로컬(NFC/NFD 혼재)과 NAS(SMB, NFD) 한글 파일명을 같은 파일로 인식함
 # rsync는 정규화 차이를 다른 파일로 보고 재전송하다 "renameat: Resource busy"로 중단됨
 if [ -n "$RCLONE_BIN" ]; then
-    RCLONE_OUTPUT=$("$RCLONE_BIN" copy "$SOURCE" "$NAS_MOUNT" \
+    RCLONE_OUTPUT=$(run_limited "$NAS_STEP_TIMEOUT" "$RCLONE_BIN" copy "$SOURCE" "$NAS_MOUNT" \
         "${RCLONE_FILTERS[@]}" \
         --min-size 1B \
         --retries 3 \
@@ -280,6 +331,9 @@ if [ -n "$RCLONE_BIN" ]; then
 
     if [ $RCLONE_STATUS -eq 0 ]; then
         log "OK: 동기화 완료 (전송 파일: ${SYNC_COUNT}개)"
+    elif [ $RCLONE_STATUS -eq 124 ]; then
+        log "ERROR: rclone NAS 동기화 시간 초과 (${NAS_STEP_TIMEOUT}초, 전송: ${SYNC_COUNT}개) - NAS 응답 없음"
+        exit 1
     elif [ "$FILE_ERRORS" -gt 0 ]; then
         log "WARN: 동기화 부분 완료 (전송: ${SYNC_COUNT}개, 실패: ${FILE_ERRORS}개)"
         log "DETAIL: $(echo "$RCLONE_OUTPUT" | grep "ERROR : " | grep -v "ERROR : Attempt " | head -5)"
@@ -309,11 +363,16 @@ fi
 if [ -d "$SOURCE" ]; then
     if [ -n "$RCLONE_BIN" ]; then
         MATCHED_FILE="/tmp/sync_nas_matched.$$"
-        "$RCLONE_BIN" check "$SOURCE" "$NAS_MOUNT" \
+        run_limited "$NAS_STEP_TIMEOUT" "$RCLONE_BIN" check "$SOURCE" "$NAS_MOUNT" \
             "${RCLONE_FILTERS[@]}" \
             --size-only \
             --one-way \
             --match "$MATCHED_FILE" >/dev/null 2>&1
+        if [ $? -eq 124 ]; then
+            # 중단된 확인 목록은 쓰지 않음
+            : > "$MATCHED_FILE"
+            log "WARN: NAS 확인 시간 초과 (${NAS_STEP_TIMEOUT}초) - 14일 경과 로컬 파일 삭제 생략"
+        fi
 
         DELETE_COUNT=0
         KEEP_COUNT=$(find "$SOURCE" -type f \( \

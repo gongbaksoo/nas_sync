@@ -326,6 +326,26 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-10-30: 멈춘 NAS 전송 해결, 잠금 자동 해제
+
+### 발견
+- 00:00 실행이 NAS 전송(`rclone copy`) 단계에서 08:21까지 멈춰 있었음. 01~08시 정기 실행은 launchd가 건너뛰어 로그 없음 (ERR-020)
+
+### 작업
+1. 멈춘 rclone 종료 (`kill -TERM`) → 스크립트가 ERROR 기록 후 잠금 해제
+2. `run_limited` 추가: NAS 작업(`rclone copy`, `rclone check`) 2700초 제한
+3. `acquire_lock` 추가: 잠금에 PID 기록, 프로세스 없으면 자동 해제 (ERR-019 재발 방지)
+4. 운영 스크립트와 repository 사본에 같은 변경 적용 (운영 백업: `~/sync_to_nas.sh.bak_20261030`)
+5. 문서 갱신: plan, design(8장), SOP, error(ERR-019 보완, ERR-020), history
+6. `fix/nas-zero-byte-and-rclone-transfer` 브랜치를 `main`에 머지
+
+### 검증
+- 임시 폴더 시험: 제한 초과 시 124 반환(3초 제한 → 13초에 종료), 정상 명령의 종료 코드·출력 유지, 남는 `sleep` 프로세스 없음
+- 잠금 시험: 새 잠금, 살아 있는 실행, 죽은 PID, PID 없는 새 잠금(유지), PID 없는 오래된 잠금(해제), 다른 프로세스 PID(해제) 모두 예상대로 동작
+- 수동 실행: exit 0, NAS 전송 0개, 잠금 정상 삭제
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -347,10 +367,10 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | NAS 전송 | ✅ rclone copy (한글 파일명 NFC/NFD 대응), rclone 없을 때 rsync fallback |
 | 0바이트 보호 | ✅ 0바이트 파일 NAS 전송 차단, 실패 복사 잔여 파일 삭제 |
 | 14일 로컬 삭제 | ✅ NAS 확인된 파일만 삭제 |
-| 오래된 잠금 자동 해제 | ⏳ 미구현 (수동 해제, ERR-019) |
+| 오래된 잠금 자동 해제 | ✅ PID 확인 후 자동 해제 |
+| NAS 응답 없음 대비 | ✅ NAS 작업 2700초 제한 |
 
 ### 다음 작업
-- 오래된 `~/.sync_nas.lock` 자동 해제 로직 (PID 기록 후 프로세스 없으면 해제)
 - 새 14일 삭제 로직의 실제 운영 결과 확인 (로그의 `14일 경과 로컬 파일 삭제` / `로컬 보존` 줄)
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현
 - 영수증 구조화 추출 고도화 (날짜, 금액, 상호 필드 분리)

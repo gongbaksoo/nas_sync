@@ -420,5 +420,23 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
 - **원인**: `launchctl load`(RunAtLoad)로 시작된 실행을 `launchctl unload`가 강제 종료하면서 `trap 'rmdir "$LOCK_DIR"' EXIT`가 실행되지 않아 `~/.sync_nas.lock`이 남음. 스크립트에 오래된 잠금 처리 로직이 없어 이후 모든 실행이 skip될 수 있음
 - **해결**: 프로세스가 없는 것을 확인한 뒤 `rmdir ~/.sync_nas.lock`, 수동 실행 정상 확인
 - **영향 파일**: `docs/03-sop/nas-sync-handoff.md` (운영 명령어와 주의사항 추가)
-- **재발 방지 (미구현)**: 잠금에 PID를 기록하고 해당 프로세스가 없으면 잠금을 자동 해제하는 로직 검토 필요
+- **재발 방지 (2026-10-30 구현)**: 잠금 디렉토리에 PID(`~/.sync_nas.lock/pid`)를 기록하고, 다음 실행 때 그 PID가 `sync_to_nas` 프로세스가 아니면 `WARN: 남은 잠금 해제` 로그 후 잠금을 다시 잡음. PID가 없는 잠금(이전 형식)은 10분 이상 지났을 때만 해제
 - **교훈**: launchd job을 unload/load할 때 RunAtLoad 실행과 수동 실행이 겹치거나 강제 종료될 수 있다. 작업 전후로 잠금 상태를 확인한다.
+
+## ERR-020: NAS(SMB) 응답 끊김으로 rclone NAS 전송이 8시간 멈춤
+
+- **발생일**: 2026-10-30
+- **증상**: 00:00 실행이 `rclone copy ~/Desktop/sync/ → NAS` 단계에서 08:21까지 멈춤. 01~08시 정기 실행은 로그도 없이 모두 건너뜀. 프로세스는 살아 있어 잠금은 정상 보유 상태
+- **원인**:
+  - rclone 스레드 하나가 NAS 쪽 `open` 시스템 호출에서 응답을 받지 못함 (8시간 동안 `Listed 3`). NAS 마운트는 이후 정상 응답했으나 멈춘 호출은 돌아오지 않음
+  - SMB 마운트는 rclone에서 로컬 디스크로 취급되어 네트워크 타임아웃(`--timeout`)이 적용되지 않음
+  - launchd는 같은 job이 실행 중이면 다음 스케줄을 시작하지 않으므로 스크립트의 SKIP 로그도 남지 않음
+- **해결**:
+  - 멈춘 rclone을 `kill -TERM`으로 종료 → 스크립트가 ERROR 기록 후 잠금 해제
+  - NAS 작업(`rclone copy`, `rclone check`)을 `run_limited`로 감싸 `NAS_STEP_TIMEOUT`(2700초)을 넘기면 종료
+  - 전송 시간 초과: `ERROR: rclone NAS 동기화 시간 초과` + Slack 알림 후 종료
+  - 확인 시간 초과: 확인 목록을 비우고 14일 로컬 삭제 생략
+  - 함께 ERR-019 잠금 자동 해제 구현
+- **검증**: 임시 폴더 시험 (시간 초과 시 124 반환, 정상 종료 코드·출력 유지, 잠금 6가지 경우), 수동 실행 exit 0
+- **영향 파일**: `~/sync_to_nas.sh`, `scripts/sync_to_nas.sh`
+- **교훈**: SMB 마운트 경로를 다루는 명령은 자체 타임아웃이 없다고 보고 스크립트에서 시간 제한을 둔다. 로그가 일정 시간 끊기면 `pgrep -fl sync_to_nas`로 멈춘 실행부터 확인한다.

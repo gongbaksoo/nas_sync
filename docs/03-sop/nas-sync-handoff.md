@@ -54,7 +54,8 @@
 - NAS 전송: `rclone copy` 사용. 로컬 한글 파일명(NFC/NFD 혼재)과 NAS(NFD)를 같은 파일로 인식함. rclone이 없을 때만 rsync fallback (권한/디렉토리 시간 보존 제외)
 - 0바이트 보호: 0바이트 파일은 NAS로 보내지 않음 (`--min-size 1B`). Google Drive 원본부터 빈 파일이면 NAS에 없는 것이 정상이며, 14일 후에도 로컬에 남음
 - RAG 인덱싱은 동기화 후 백그라운드 실행하며 중복 실행은 건너뜀 (`~/.sync_nas_index.log`)
-- 중복 동기화 방지를 위해 `~/.sync_nas.lock` 락 디렉토리를 사용함
+- 중복 동기화 방지를 위해 `~/.sync_nas.lock` 락 디렉토리를 사용하고 안에 실행 PID(`pid`)를 기록함. 다음 실행 때 그 프로세스가 없으면 잠금을 자동 해제함 (`WARN: 남은 잠금 해제`)
+- NAS 작업(`rclone copy`, `rclone check`)은 2700초(`NAS_STEP_TIMEOUT`)를 넘기면 종료함. SMB 응답이 끊겨도 다음 정각 실행이 막히지 않게 하기 위함 (ERR-020)
 - Google Drive 당일 Download Backup/YYYY/YYMM/YYMMDD 폴더는 rclone Google Drive API로 우선 복사함
 - rclone remote 이름은 `gdrive_nas:`이고, root folder는 Work Space (`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)
 - Screen Shot은 `gdrive_screenshots:` remote를 사용하고, root folder는 Screen Shot (`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)
@@ -105,15 +106,17 @@ ls /Volumes/personal_folder/
 # NAS 0바이트 파일 점검 (0이어야 정상)
 find /Volumes/personal_folder/Macmini_backup -type f -size 0 ! -name '.DS_Store' | wc -l
 
-# "SKIP: 이전 동기화 프로세스가 아직 실행 중"이 계속될 때
-# 실행 중인 프로세스가 없는지 먼저 확인한 뒤 남은 잠금 삭제
-pgrep -fl "sync_to_nas|rclone|rsync" || rmdir ~/.sync_nas.lock
+# 정각 로그가 끊겼을 때: 멈춘 실행이 있는지 확인 (launchd는 실행 중이면 다음 스케줄을 건너뜀)
+pgrep -fl "sync_to_nas|rclone|rsync"
+
+# 남은 잠금은 다음 실행 때 자동 해제됨. 수동으로 지울 때는 프로세스가 없는 것을 확인한 뒤
+pgrep -f sync_to_nas || rm -rf ~/.sync_nas.lock
 
 # 로그가 커졌을 때 NAS에 압축 보관 후 비우기 (자동 동기화 중지 상태에서)
 gzip -c ~/.sync_nas.log > /Volumes/personal_folder/sync_logs/sync_nas_log_until_$(date +%Y%m%d).log.gz && : > ~/.sync_nas.log
 ```
 
-> 주의: `launchctl unload`는 실행 중인 동기화를 강제 종료하며, 이때 `~/.sync_nas.lock`이 남아 이후 실행이 모두 skip될 수 있다 (ERR-019). unload 후에는 잠금이 남았는지 확인한다.
+> 주의: `launchctl unload`는 실행 중인 동기화를 강제 종료하며, 이때 `~/.sync_nas.lock`이 남는다 (ERR-019). 2026-10-30부터는 다음 실행이 PID를 확인해 자동 해제한다.
 
 ## 5. 미완료 작업 (다음 AI가 진행해야 할 것)
 
@@ -179,7 +182,8 @@ Finder에서 NAS 연결 시 "키체인에 비밀번호 기억" 체크 필요
 | 07~24시 매시 정각 동기화 | 구현 완료 |
 | 14일 후 로컬 파일 자동 삭제 | 구현 완료 (NAS 확인된 파일만 삭제, 2026-10-29) |
 | 0바이트 파일로 NAS 원본 덮어쓰기 방지 | 구현 완료 (2026-10-29) |
-| 오래된 잠금 자동 해제 | 미구현 - 현재는 수동 해제 (4장 명령어) |
+| 오래된 잠금 자동 해제 | 구현 완료 (PID 확인, 2026-10-30) |
+| NAS 응답 없음 시 무한 대기 방지 | 구현 완료 (NAS 작업 2700초 제한, 2026-10-30) |
 | NAS 미연결 시 재연결 | 구현 완료 |
 | 동기화 로그 기록 | 구현 완료 |
 | Slack 알림 (완료/실패) | 구현 완료 |
