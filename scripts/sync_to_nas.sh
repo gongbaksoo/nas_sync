@@ -47,7 +47,8 @@ RSYNC_FILTERS=(
     --exclude='*'
 )
 
-NAS_RSYNC_OPTS=(-rlti --omit-dir-times --timeout=60)
+# --min-size=1: 복사 실패로 생긴 0바이트 파일이 NAS 원본을 덮어쓰지 않도록 차단
+NAS_RSYNC_OPTS=(-rlti --omit-dir-times --timeout=60 --min-size=1)
 RCLONE_FILTERS=(
     --filter='- ~$*' --filter='- .DS_Store' --filter='- Thumbs.db'
     --filter='+ *.xlsx' --filter='+ *.xls' --filter='+ *.xlsb'
@@ -123,6 +124,10 @@ copy_gdrive_tree() {
                 copied=$((copied + 1))
             else
                 failed=$((failed + 1))
+                # cp 실패 시 남는 0바이트 파일 제거 (NAS 원본 덮어쓰기 방지)
+                if [ ! -s "$dst_file" ]; then
+                    rm -f "$dst_file"
+                fi
                 log "WARN: Google Drive ${label} 파일 복사 실패: $src_file ($(cat /tmp/sync_nas_cp_error.$$ 2>/dev/null | head -1))"
             fi
             rm -f /tmp/sync_nas_cp_error.$$
@@ -191,6 +196,13 @@ copy_with_rclone() {
         return 0
     fi
 
+    # 당일 폴더가 아직 없는 경우(주말·새벽 등)는 정상 상황이므로 fallback 전체 스캔을 하지 않음
+    if grep -q "directory not found" "$out_file"; then
+        log "OK: Google Drive ${label} 없음 - 복사할 파일 없음"
+        rm -f "$out_file"
+        return 0
+    fi
+
     log "WARN: rclone Google Drive ${label} 복사 실패(exit: $?): $(head -3 "$out_file" | tr '\n' ' ')"
     rm -f "$out_file"
     return 1
@@ -252,7 +264,31 @@ if [ ! -d "$NAS_MOUNT" ]; then
     exit 1
 fi
 
-# === 2. rsync 동기화 (sync → NAS) ===
+# === 2. NAS 동기화 (sync → NAS) ===
+# rclone 우선: 로컬(NFC/NFD 혼재)과 NAS(SMB, NFD) 한글 파일명을 같은 파일로 인식함
+# rsync는 정규화 차이를 다른 파일로 보고 재전송하다 "renameat: Resource busy"로 중단됨
+if [ -n "$RCLONE_BIN" ]; then
+    RCLONE_OUTPUT=$("$RCLONE_BIN" copy "$SOURCE" "$NAS_MOUNT" \
+        "${RCLONE_FILTERS[@]}" \
+        --min-size 1B \
+        --retries 3 \
+        --low-level-retries 10 \
+        --log-level INFO 2>&1)
+    RCLONE_STATUS=$?
+    SYNC_COUNT=$(echo "$RCLONE_OUTPUT" | grep -c ": Copied (" || true)
+    FILE_ERRORS=$(echo "$RCLONE_OUTPUT" | grep "ERROR : " | grep -vc "ERROR : Attempt " || true)
+
+    if [ $RCLONE_STATUS -eq 0 ]; then
+        log "OK: 동기화 완료 (전송 파일: ${SYNC_COUNT}개)"
+    elif [ "$FILE_ERRORS" -gt 0 ]; then
+        log "WARN: 동기화 부분 완료 (전송: ${SYNC_COUNT}개, 실패: ${FILE_ERRORS}개)"
+        log "DETAIL: $(echo "$RCLONE_OUTPUT" | grep "ERROR : " | grep -v "ERROR : Attempt " | head -5)"
+    else
+        log "ERROR: rclone NAS 동기화 실패 (exit code: $RCLONE_STATUS)"
+        log "DETAIL: $(echo "$RCLONE_OUTPUT" | tail -5)"
+        exit 1
+    fi
+else
 RSYNC_OUTPUT=$(rsync "${NAS_RSYNC_OPTS[@]}" "${RSYNC_FILTERS[@]}" "$SOURCE" "$NAS_MOUNT" 2>&1)
 
 RSYNC_STATUS=$?
@@ -265,32 +301,50 @@ else
     log "DETAIL: $RSYNC_OUTPUT"
     exit 1
 fi
+fi
 
 # === 3. 14일 이상 된 로컬 파일 삭제 ===
+# NAS에 같은 크기로 있는 것이 확인된 파일만 삭제 (복사 실패 파일은 로컬에 남겨 다음 실행 때 재시도)
+# NAS(SMB)는 NFC 이름으로 조회가 안 되므로 존재 확인은 rclone check에 맡김
 if [ -d "$SOURCE" ]; then
-    DELETE_COUNT=$(find "$SOURCE" -type f \( \
-        -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsb" -o \
-        -name "*.csv" -o \
-        -name "*.pptx" -o -name "*.ppt" -o \
-        -name "*.pdf" -o -name "*.zip" -o -name "*.html" -o -name "*.htm" -o \
-        -name "*.jpg" -o -name "*.jpeg" -o \
-        -name "*.png" -o -name "*.gif" -o -name "*.webp" \
-    \) -ctime +14 | wc -l | tr -d ' ')
+    if [ -n "$RCLONE_BIN" ]; then
+        MATCHED_FILE="/tmp/sync_nas_matched.$$"
+        "$RCLONE_BIN" check "$SOURCE" "$NAS_MOUNT" \
+            "${RCLONE_FILTERS[@]}" \
+            --size-only \
+            --one-way \
+            --match "$MATCHED_FILE" >/dev/null 2>&1
 
-    if [ "$DELETE_COUNT" -gt 0 ]; then
-        find "$SOURCE" -type f \( \
+        DELETE_COUNT=0
+        KEEP_COUNT=$(find "$SOURCE" -type f \( \
             -name "*.xlsx" -o -name "*.xls" -o -name "*.xlsb" -o \
             -name "*.csv" -o \
             -name "*.pptx" -o -name "*.ppt" -o \
             -name "*.pdf" -o -name "*.zip" -o -name "*.html" -o -name "*.htm" -o \
             -name "*.jpg" -o -name "*.jpeg" -o \
             -name "*.png" -o -name "*.gif" -o -name "*.webp" \
-        \) -ctime +14 -delete
+        \) -ctime +14 | wc -l | tr -d ' ')
 
-        # 빈 디렉토리 정리
-        find "$SOURCE" -type d -empty -delete 2>/dev/null
+        if [ -s "$MATCHED_FILE" ]; then
+            while IFS= read -r rel; do
+                if [ -n "$(find "${SOURCE}${rel}" -prune -ctime +14 2>/dev/null)" ]; then
+                    rm -f "${SOURCE}${rel}" && DELETE_COUNT=$((DELETE_COUNT + 1))
+                fi
+            done < "$MATCHED_FILE"
+        fi
+        rm -f "$MATCHED_FILE"
+        KEEP_COUNT=$((KEEP_COUNT - DELETE_COUNT))
 
-        log "OK: 14일 경과 로컬 파일 삭제 (${DELETE_COUNT}개)"
+        if [ "$DELETE_COUNT" -gt 0 ]; then
+            # 빈 디렉토리 정리
+            find "$SOURCE" -type d -empty -delete 2>/dev/null
+            log "OK: 14일 경과 로컬 파일 삭제 (${DELETE_COUNT}개)"
+        fi
+        if [ "$KEEP_COUNT" -gt 0 ]; then
+            log "WARN: 14일 경과했지만 NAS 미확인으로 로컬 보존 (${KEEP_COUNT}개)"
+        fi
+    else
+        log "WARN: rclone 없음 - NAS 확인 불가로 14일 경과 로컬 파일 삭제 생략"
     fi
 fi
 

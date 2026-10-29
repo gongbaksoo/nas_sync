@@ -65,7 +65,11 @@
 | Google Drive API 복사 | `rclone copy gdrive_nas:"Download Backup/YYYY/YYMM/YYMMDD"` 우선 실행 |
 | Screen Shot API 복사 | `rclone copy gdrive_screenshots:` 우선 실행 |
 | rclone fallback | rclone 미설치/remote 미설정/복사 실패 시 File Provider `cp -p` fallback |
-| NAS rsync timeout | `--timeout=60`으로 SMB hang 방지 |
+| NAS 전송 | `rclone copy ~/Desktop/sync/ → NAS` 우선 사용 (한글 파일명 NFC/NFD 차이를 같은 파일로 인식). rclone이 없을 때만 rsync fallback |
+| NAS rsync timeout | rsync fallback 사용 시 `--timeout`으로 SMB hang 방지 |
+| 0바이트 보호 | NAS 전송 시 `--min-size 1B`(rclone) / `--min-size=1`(rsync)로 0바이트 파일이 NAS 원본을 덮어쓰지 않음. `cp -p` fallback 실패 시 남은 0바이트 파일은 즉시 삭제 |
+| 14일 로컬 삭제 | NAS에 같은 크기로 있는 것이 `rclone check`로 확인된 파일만 삭제. 미확인 파일은 로컬 보존 후 다음 실행에서 재전송 |
+| 당일 폴더 없음 | rclone이 `directory not found`를 반환하면 정상(복사할 파일 없음)으로 처리하고 File Provider 전체 스캔 fallback을 실행하지 않음 |
 | 당일 폴더 우선 복사 | `Download Backup/YYYY/YYMM/YYMMDD`를 API 기반으로 먼저 복사 |
 | 오류 기록 | rclone exit code/stderr 요약 및 fallback 실행 여부를 WARN 로그로 기록 |
 | launchd PATH 보정 | 정기 실행 환경에서도 Homebrew rclone을 찾도록 `/opt/homebrew/bin`, `/usr/local/bin`을 PATH와 절대경로 후보에 포함 |
@@ -106,6 +110,9 @@
 | 이전 실행이 장시간 점유 | lock으로 중복 실행을 skip하고 rsync timeout으로 hang 완화 |
 | rclone OAuth/remote 설정 누락 | WARN 로그를 남기고 기존 File Provider fallback으로 동작 |
 | launchd가 Homebrew PATH를 상속하지 못함 | 스크립트 내부에서 PATH를 보정하고 `/opt/homebrew/bin/rclone`, `/usr/local/bin/rclone`을 직접 탐색 |
+| 복사 실패로 생긴 0바이트 파일이 NAS 원본을 덮어씀 | 0바이트 전송 차단 + 실패 파일 즉시 삭제 (ERR-017) |
+| 로컬(NFC)과 NAS(NFD) 한글 파일명 형식 불일치 | NAS 전송과 존재 확인을 rclone으로 처리 (ERR-018) |
+| Google Drive는 영구 보관소가 아님 | MacBook 삭제가 반영되고 Screen Shot은 최근 파일만 남음. NAS를 최종 보관소로 보고, NAS 확인 전에는 로컬 파일을 지우지 않음 |
 
 ## 9. 구현 결과
 
@@ -125,3 +132,4 @@
 - **RAG 인덱싱 개선 (2026-05-20)**: 동기화 후 인덱싱을 백그라운드로 전환. 파일별 성공/실패 마커 즉시 저장, 임베딩/VectorStore 배치 처리와 진행 로그 추가. 5/20 변경분 45개 인덱싱 성공, 실패 0.
 - **rclone 전환 (2026-05-21)**: Work Space 폴더 ID(`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)를 root로 하는 `gdrive_nas` remote와 Screen Shot 폴더 ID(`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)를 root로 하는 `gdrive_screenshots` remote를 도입. 당일 `Download Backup/YYYY/YYMM/YYMMDD`와 Screen Shot은 rclone API 복사를 우선 사용하고, 실패 시 File Provider `cp -p` fallback을 사용.
 - **launchd PATH 보정 (2026-05-22)**: 07~09시 정기 실행에서 launchd가 Homebrew PATH를 상속하지 못해 `rclone 미설치`로 fallback된 문제 수정. 스크립트 내부 PATH와 절대경로 탐색을 추가했고 10시/11시 정기 실행에서 rclone primary 경로 정상 사용 확인.
+- **0바이트 덮어쓰기 복구 및 NAS 전송 rclone 전환 (2026-10-29)**: NAS 파일 4,142개가 0바이트로 덮어써진 사고(ERR-017)를 Google Drive 원본으로 복구. NAS 전송을 rsync에서 rclone으로 전환(ERR-018), 14일 로컬 삭제를 NAS 확인된 파일로 한정. 수동 실행 2회 정상(전송 13개 → 0개), NAS 0바이트 파일 0개.

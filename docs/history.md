@@ -290,6 +290,42 @@ NAS Agentic RAG 프로젝트 개발 이력.
 
 ---
 
+## 2026-10-29: NAS 0바이트 파일 복구 및 NAS 전송 rclone 전환
+
+### 이슈
+- NAS `Macmini_backup` 6,473개 중 4,142개가 0바이트로 덮어써져 있었음 (ERR-017)
+- 로컬 sync 폴더에도 0바이트 파일 4,144개, `~/.sync_nas.log` 1.1GB
+- 수정 후 싱크를 재개하자 rsync가 한글 파일명 정규화 차이로 `renameat: Resource busy` 중단 (ERR-018, 10/28에도 발생)
+- 작업 중 `launchctl unload`로 강제 종료된 실행이 잠금을 남겨 이후 실행이 skip됨 (ERR-019)
+
+### 조치
+1. 자동 동기화 중지 (`launchctl unload`), 운영 스크립트 백업 `~/sync_to_nas.sh.bak_20261029`
+2. 0바이트 원인 수정 (운영 스크립트 + repository 사본)
+   - rclone `directory not found`(당일 폴더 없음)는 정상 처리, File Provider 전체 스캔 fallback 생략
+   - `cp -p` 실패 시 남은 0바이트 파일 삭제
+   - NAS 전송에서 0바이트 파일 제외
+3. 로컬 0바이트 파일 4,144개 삭제
+4. Google Drive 원본으로 NAS 4,142개(6.3GiB) 복구 (`rclone copy gdrive_nas: → NAS --files-from-raw`)
+5. NAS 전송을 rsync → `rclone copy`로 전환 (rclone 없을 때만 rsync fallback)
+6. 14일 로컬 삭제를 `rclone check --match`로 NAS에 같은 크기로 있는 파일만 삭제하도록 변경
+7. 로그 1.1GB를 `/Volumes/personal_folder/sync_logs/sync_nas_log_until_20261029.log.gz`(36MB)로 보관 후 로컬 로그 비움 (압축본 무결성·줄 수 1,917,996줄 일치 확인)
+8. 남은 잠금 `~/.sync_nas.lock` 수동 해제, 자동 동기화 재개
+9. 문서 갱신: plan, design, SOP, error(ERR-017~019), history
+
+### 검증
+- NAS 0바이트 파일 0개, 복구 대상 4,144개 크기 Google Drive와 전부 일치
+- 수동 실행 1차: NAS 전송 13개, 14일 경과 로컬 삭제 11개, RAG 인덱싱 시작, exit 0
+- 수동 실행 2차: NAS 전송 0개 (재전송 없음)
+- 삭제 로직 임시 폴더 시험: NAS에 같은 크기로 있는 파일만 삭제, 나머지 보존
+- 실제 폴더에서는 아직 14일 경과 파일이 없어 새 삭제 로직의 실제 삭제는 미확인
+
+### 확인된 사실
+- NAS의 Work Space 파일은 모두 Google Drive에 있음. Screen Shot은 Google Drive에 최근 134개만 있고 예전 1,611개는 NAS에만 있음 → NAS를 최종 보관소로 운영
+- `업태상품목록 (2).xlsx`(10/29)는 Google Drive 원본부터 0바이트라 NAS로 전송되지 않으며, 14일 후에도 로컬에 남아 매시간 WARN이 기록될 예정
+- repository 사본은 운영 스크립트와 다름: rsync `--timeout=60`(운영 300), Slack 알림 코드 없음 (웹훅 URL 노출 방지)
+
+---
+
 ## 현재 상태
 
 | 항목 | 상태 |
@@ -308,8 +344,14 @@ NAS Agentic RAG 프로젝트 개발 이력.
 | RAG 자동 인덱싱 | ✅ 백그라운드 실행, 실패 파일 마커 기록, `.xls`/HTML-export `.xls` 처리 |
 | Slack 알림 | ✅ 완료/실패 시 Slack Incoming Webhook 알림 |
 | 동기화 안전장치 | ✅ timeout 300초, lock, WARN 로깅, launchd PATH 보정, exit 23 허용, 07~24시 정기 실행 |
+| NAS 전송 | ✅ rclone copy (한글 파일명 NFC/NFD 대응), rclone 없을 때 rsync fallback |
+| 0바이트 보호 | ✅ 0바이트 파일 NAS 전송 차단, 실패 복사 잔여 파일 삭제 |
+| 14일 로컬 삭제 | ✅ NAS 확인된 파일만 삭제 |
+| 오래된 잠금 자동 해제 | ⏳ 미구현 (수동 해제, ERR-019) |
 
 ### 다음 작업
+- 오래된 `~/.sync_nas.lock` 자동 해제 로직 (PID 기록 후 프로세스 없으면 해제)
+- 새 14일 삭제 로직의 실제 운영 결과 확인 (로그의 `14일 경과 로컬 파일 삭제` / `로컬 보존` 줄)
 - `/pdca do nas-agentic-rag --scope agentic` — Agentic 라우터 (M6) 구현
 - 영수증 구조화 추출 고도화 (날짜, 금액, 상호 필드 분리)
 - 이미지 기반 PDF OCR 처리 (회사소개서 등)

@@ -31,10 +31,12 @@
 
 ```
 /Volumes/personal_folder/
-├── Macmini_backup/    ← 동기화 대상 폴더 (현재 비어있음)
+├── Macmini_backup/    ← 동기화 대상 폴더 (2026-10-29 기준 약 6,490개)
+├── sync_logs/         ← 오래된 동기화 로그 압축 보관
+├── rag_db/            ← LanceDB SMB 저장 실패(ERR-001) 당시 잔여물, 현재 미사용
 ├── PC_AVK_backup/
+├── Photos/
 ├── backup/
-├── docker/
 └── #recycle/
 ```
 
@@ -48,19 +50,23 @@
 - 스케줄: 매일 07:00~24:00 매시 정각 (18회/일, launchd Hour 0 포함) + 부팅 시 1회
 - 대상 확장자: xlsx, xls, xlsb, csv, pptx, ppt, pdf, zip, html, htm, jpg, jpeg, png, gif, webp
 - 제외: ~$* (Office 임시파일), .DS_Store, Thumbs.db
-- 로컬 보관: 로컬 sync 폴더에 들어온 뒤 14일 후 자동 삭제 (find -ctime +14 -delete)
-- SMB 권한 메타데이터 차이는 동기화 변경으로 보지 않음 (NAS rsync는 권한/디렉토리 시간 보존 제외)
+- 로컬 보관: 로컬 sync 폴더에 들어온 뒤 14일이 지나고, `rclone check`로 NAS에 같은 크기로 있는 것이 확인된 파일만 삭제. 미확인 파일은 로컬에 남겨 다음 실행에서 재전송 (`WARN: ... 로컬 보존 (N개)`)
+- NAS 전송: `rclone copy` 사용. 로컬 한글 파일명(NFC/NFD 혼재)과 NAS(NFD)를 같은 파일로 인식함. rclone이 없을 때만 rsync fallback (권한/디렉토리 시간 보존 제외)
+- 0바이트 보호: 0바이트 파일은 NAS로 보내지 않음 (`--min-size 1B`). Google Drive 원본부터 빈 파일이면 NAS에 없는 것이 정상이며, 14일 후에도 로컬에 남음
 - RAG 인덱싱은 동기화 후 백그라운드 실행하며 중복 실행은 건너뜀 (`~/.sync_nas_index.log`)
 - 중복 동기화 방지를 위해 `~/.sync_nas.lock` 락 디렉토리를 사용함
 - Google Drive 당일 Download Backup/YYYY/YYMM/YYMMDD 폴더는 rclone Google Drive API로 우선 복사함
 - rclone remote 이름은 `gdrive_nas:`이고, root folder는 Work Space (`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)
 - Screen Shot은 `gdrive_screenshots:` remote를 사용하고, root folder는 Screen Shot (`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)
 - launchd 환경에서도 rclone을 찾도록 스크립트 내부에서 `/opt/homebrew/bin`, `/usr/local/bin` PATH와 절대경로 후보를 확인함
-- rclone 미설정/실패 시 Google Drive File Provider 경로에서 `cp -p` fallback 복사
-- NAS rsync는 `--timeout=300`으로 무한 대기 방지 (대량 전송 시 60초 timeout 발생 이력으로 300초로 확대)
-- rsync exit code 23(부분 전송 오류)은 성공으로 처리하고 실패 파일 수를 WARN 로그에 기록 (SMB 한글 파일명 호환 문제)
+- 당일 폴더가 아직 없으면(`directory not found`) 정상으로 처리하고 fallback을 실행하지 않음
+- 그 외 rclone 실패 시 Google Drive File Provider 경로에서 `cp -p` fallback 복사. `cp` 실패로 남은 0바이트 파일은 즉시 삭제
+- rsync fallback은 `--timeout=300`(운영 스크립트 기준)으로 무한 대기 방지
+- NAS 전송 중 일부 파일만 실패하면 전송/실패 수를 WARN 로그에 남기고 계속 진행 (예: `★` 포함 파일명)
 - NAS 미연결 시: open smb:// 로 재연결 시도 → 실패 시 로그 기록 후 다음 스케줄 대기
-- Slack 알림: 동기화 완료(파일 전송 있을 때), NAS 연결 실패, rsync 실패 시 Slack Incoming Webhook으로 알림 전송
+- Slack 알림: 동기화 완료(파일 전송 있을 때), NAS 연결 실패, NAS 전송 실패 시 Slack Incoming Webhook으로 알림 전송
+- Slack 웹훅 URL은 운영 스크립트(`~/sync_to_nas.sh`)에만 있고 repository 사본에는 넣지 않음 (Slack 코드 자체가 repository 사본에는 없음)
+- Google Drive는 영구 보관소가 아님: MacBook에서 지운 파일은 Google Drive에서도 지워질 수 있고, Screen Shot은 최근 파일만 남음 (2026-10-29: 예전 스크린샷 1,611개는 NAS에만 있음). NAS가 최종 보관소
 - 로그 파일: `~/.sync_nas.log`
 
 ## 4. 운영 명령어
@@ -95,7 +101,19 @@ open 'smb://gongbaksoo@192.168.0.235/personal_folder'
 
 # NAS 마운트 확인
 ls /Volumes/personal_folder/
+
+# NAS 0바이트 파일 점검 (0이어야 정상)
+find /Volumes/personal_folder/Macmini_backup -type f -size 0 ! -name '.DS_Store' | wc -l
+
+# "SKIP: 이전 동기화 프로세스가 아직 실행 중"이 계속될 때
+# 실행 중인 프로세스가 없는지 먼저 확인한 뒤 남은 잠금 삭제
+pgrep -fl "sync_to_nas|rclone|rsync" || rmdir ~/.sync_nas.lock
+
+# 로그가 커졌을 때 NAS에 압축 보관 후 비우기 (자동 동기화 중지 상태에서)
+gzip -c ~/.sync_nas.log > /Volumes/personal_folder/sync_logs/sync_nas_log_until_$(date +%Y%m%d).log.gz && : > ~/.sync_nas.log
 ```
+
+> 주의: `launchctl unload`는 실행 중인 동기화를 강제 종료하며, 이때 `~/.sync_nas.lock`이 남아 이후 실행이 모두 skip될 수 있다 (ERR-019). unload 후에는 잠금이 남았는지 확인한다.
 
 ## 5. 미완료 작업 (다음 AI가 진행해야 할 것)
 
@@ -159,7 +177,9 @@ Finder에서 NAS 연결 시 "키체인에 비밀번호 기억" 체크 필요
 |----------|------|
 | NAS를 메인 저장소로 사용 | 구현 완료 |
 | 07~24시 매시 정각 동기화 | 구현 완료 |
-| 14일 후 로컬 파일 자동 삭제 | 구현 완료 |
+| 14일 후 로컬 파일 자동 삭제 | 구현 완료 (NAS 확인된 파일만 삭제, 2026-10-29) |
+| 0바이트 파일로 NAS 원본 덮어쓰기 방지 | 구현 완료 (2026-10-29) |
+| 오래된 잠금 자동 해제 | 미구현 - 현재는 수동 해제 (4장 명령어) |
 | NAS 미연결 시 재연결 | 구현 완료 |
 | 동기화 로그 기록 | 구현 완료 |
 | Slack 알림 (완료/실패) | 구현 완료 |

@@ -343,3 +343,82 @@ NAS Agentic RAG 구축 과정에서 발생한 에러와 해결 방법 기록.
 - **해결**: 수동 실행으로 Slack 알림 정상 발송 확인
 - **영향 파일**: `~/sync_to_nas.sh`
 - **교훈**: 운영 스크립트 수정 후에는 수동 실행으로 반영 여부를 즉시 확인하는 것이 좋다.
+
+---
+
+## ERR-017: 복사 실패로 생긴 0바이트 파일이 NAS 원본을 덮어씀
+
+- **발생일**: 2026-07-11경 시작, 2026-10-29 발견
+- **증상**:
+  - NAS `Macmini_backup` 6,473개 중 4,142개가 0바이트 (Download Backup, AVK, Stock Data 등. Screen Shot과 최근 파일은 정상)
+  - 로컬 sync 폴더에도 0바이트 파일 4,144개
+  - `~/.sync_nas.log`가 1.1GB(약 192만 줄)로 커졌고, 약 188만 줄이 `WARN: Google Drive Work Space 파일 복사 실패 ... Resource deadlock avoided`
+- **원인** (매시간 반복):
+  1. 당일 `Download Backup/YYYY/YYMM/YYMMDD` 폴더가 아직 없으면 rclone이 `directory not found`로 실패 (7/11~10/29 856회)
+  2. 스크립트가 이를 rclone 장애로 보고 File Provider Work Space 전체 스캔 fallback 실행
+  3. 14일 경과로 로컬에서 이미 삭제된 예전 파일까지 다시 `cp -p` 시도 → File Provider `fcopyfile failed: Resource deadlock avoided`로 실패하면서 0바이트 파일이 남음
+  4. 다음 rsync가 크기 차이를 변경으로 보고 NAS 원본을 0바이트 파일로 덮어씀
+  - 예: `2026-07-14_…매입상품점포별_v1.2_보관.xls` — 로그 실패 638회, 로컬/NAS 0바이트, Google Drive 2,011바이트
+  - 문서(history/error)에 의도적으로 파일을 비운 기록은 없음
+- **해결**:
+  - `directory not found`는 정상(복사할 파일 없음)으로 처리하고 fallback 전체 스캔을 하지 않음
+  - `cp -p` 실패 시 남은 0바이트 대상 파일 즉시 삭제
+  - NAS 전송에서 0바이트 파일 제외 (rsync `--min-size=1`, 이후 rclone `--min-size 1B`)
+  - 로컬 0바이트 파일 4,144개 삭제
+  - `rclone copy gdrive_nas: → NAS --files-from-raw <목록>`으로 Google Drive 원본 4,142개(6.3GiB) NAS 복구. 8개는 1차 시도에서 `.partial` rename 실패(`can't move object - incompatible remotes`), 자동 재시도에서 성공
+  - 1.1GB 로그는 `/Volumes/personal_folder/sync_logs/sync_nas_log_until_20261029.log.gz`(36MB)로 보관 후 로컬 로그 비움
+- **영향 파일**:
+  - `~/sync_to_nas.sh` (백업: `~/sync_to_nas.sh.bak_20261029`)
+  - `scripts/sync_to_nas.sh`
+  - `docs/01-plan/features/gdrive-to-sync.plan.md`
+  - `docs/02-design/features/gdrive-rclone-sync.design.md`
+  - `docs/03-sop/nas-sync-handoff.md`
+- **검증**:
+  - NAS 0바이트 파일 0개, 전체 6,473개 유지, `.partial` 잔여 0개
+  - 복구 대상 4,144개를 NFC 정규화 후 Google Drive 크기와 비교: 전부 일치
+  - `rclone check`는 3,721개를 missing으로 보고했으나 `--files-from-raw` 경로(NFC)가 SMB(NFD)에서 조회되지 않아 생긴 오탐이었음 (ERR-018 참고)
+- **교훈**: fallback은 "복사할 것이 없음"과 "복사 장치 실패"를 구분해야 한다. 실패한 복사가 남긴 결과물은 백업 대상에 들어가지 않도록 막아야 하고, 단방향 백업은 크기 0으로의 변경을 정상 변경으로 받아들이면 안 된다.
+
+---
+
+## ERR-018: rsync가 한글 파일명 정규화 차이로 `renameat: Resource busy` 중단
+
+- **발생일**: 2026-10-28 처음 기록, 2026-10-29 재현
+- **증상**:
+  - `rsync(…): error: renameat: Resource busy`, `move_file: … Resource busy`, `unexpected end of file` → exit 1
+  - NAS에 이미 있는 10/14 이후 파일을 `>f+++++++`(신규)로 재전송하다 중단. 실행마다 조금씩 진행 후 다시 중단
+  - exit 1이라 이후 단계(14일 로컬 삭제, RAG 인덱싱)가 실행되지 않고 매시간 Slack 실패 알림 발송
+- **원인**:
+  - 로컬 sync 폴더 한글 파일명이 NFC(389개, rclone 복사분)와 NFD(108개)로 섞여 있음
+  - NAS(SMB 마운트)는 파일명을 모두 NFD로 돌려주고(4,282개), NFC 이름으로는 조회도 실패함
+  - openrsync(`/usr/bin/rsync`, protocol 29)는 정규화가 다른 이름을 다른 파일로 보고 임시 파일 생성 후 rename을 시도하지만, SMB는 같은 이름으로 보고 거부함. `--iconv` 미지원
+- **해결**:
+  - NAS 전송을 `rclone copy ~/Desktop/sync/ → NAS --min-size 1B --retries 3`으로 전환 (rclone은 정규화가 다른 이름을 같은 파일로 비교)
+  - rclone이 없을 때만 기존 rsync fallback
+  - 결과 처리: exit 0 → OK, 파일 단위 ERROR 존재 → WARN 후 계속 진행, 그 외 → ERROR + Slack 후 종료
+  - 14일 로컬 삭제도 `rclone check --size-only --one-way --match`로 NAS에 같은 크기로 있는 파일만 삭제하도록 변경 (NAS 미확인 파일은 로컬 보존)
+- **영향 파일**:
+  - `~/sync_to_nas.sh`
+  - `scripts/sync_to_nas.sh`
+  - `docs/01-plan/features/gdrive-to-sync.plan.md`
+  - `docs/02-design/features/gdrive-rclone-sync.design.md`
+  - `docs/03-sop/nas-sync-handoff.md`
+- **검증**:
+  - rclone dry-run: 전송 대상 13개(당일 신규 파일)만 잡힘
+  - 1차 수동 실행: 전송 13개, 14일 경과 로컬 삭제 11개, exit 0
+  - 2차 수동 실행: 전송 0개
+  - `rclone check` 11초: 로컬 2,004개 일치, 1개는 Google Drive 원본부터 0바이트인 파일
+  - 삭제 로직 임시 폴더 시험: 일치 파일만 삭제, NAS 없음/크기 다름 파일은 보존
+- **교훈**: macOS SMB 마운트 위에서는 한글 파일명 정규화가 맞지 않으면 rsync가 같은 파일을 다른 파일로 본다. 파일명 비교가 필요한 작업(전송, 존재 확인)은 정규화를 처리하는 도구에 맡긴다.
+
+---
+
+## ERR-019: `launchctl unload`로 강제 종료된 실행이 잠금을 남김
+
+- **발생일**: 2026-10-29
+- **증상**: 수동 실행이 `SKIP: 이전 동기화 프로세스가 아직 실행 중`으로 건너뜀. 실행 중인 `sync_to_nas`/`rclone`/`rsync` 프로세스는 없음
+- **원인**: `launchctl load`(RunAtLoad)로 시작된 실행을 `launchctl unload`가 강제 종료하면서 `trap 'rmdir "$LOCK_DIR"' EXIT`가 실행되지 않아 `~/.sync_nas.lock`이 남음. 스크립트에 오래된 잠금 처리 로직이 없어 이후 모든 실행이 skip될 수 있음
+- **해결**: 프로세스가 없는 것을 확인한 뒤 `rmdir ~/.sync_nas.lock`, 수동 실행 정상 확인
+- **영향 파일**: `docs/03-sop/nas-sync-handoff.md` (운영 명령어와 주의사항 추가)
+- **재발 방지 (미구현)**: 잠금에 PID를 기록하고 해당 프로세스가 없으면 잠금을 자동 해제하는 로직 검토 필요
+- **교훈**: launchd job을 unload/load할 때 RunAtLoad 실행과 수동 실행이 겹치거나 강제 종료될 수 있다. 작업 전후로 잠금 상태를 확인한다.
