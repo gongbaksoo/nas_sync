@@ -113,6 +113,7 @@
 | launchd가 Homebrew PATH를 상속하지 못함 | 스크립트 내부에서 PATH를 보정하고 `/opt/homebrew/bin/rclone`, `/usr/local/bin/rclone`을 직접 탐색 |
 | 복사 실패로 생긴 0바이트 파일이 NAS 원본을 덮어씀 | 0바이트 전송 차단 + 실패 파일 즉시 삭제 (ERR-017) |
 | 로컬(NFC)과 NAS(NFD) 한글 파일명 형식 불일치 | NAS 전송과 존재 확인을 rclone으로 처리 (ERR-018) |
+| macOS가 네트워크 볼륨 접근 권한을 다시 요청 | 허용 전까지 NAS 작업이 멈춤. 2700초 제한으로 다음 실행은 유지되고, 로컬 파일은 NAS 확인 전이라 삭제되지 않음. 화면에서 허용 필요 |
 | Google Drive는 영구 보관소가 아님 | MacBook 삭제가 반영되고 Screen Shot은 최근 파일만 남음. NAS를 최종 보관소로 보고, NAS 확인 전에는 로컬 파일을 지우지 않음 |
 
 ## 9. 구현 결과

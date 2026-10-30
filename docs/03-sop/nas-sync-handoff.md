@@ -55,7 +55,8 @@
 - 0바이트 보호: 0바이트 파일은 NAS로 보내지 않음 (`--min-size 1B`). Google Drive 원본부터 빈 파일이면 NAS에 없는 것이 정상이며, 14일 후에도 로컬에 남음
 - RAG 인덱싱은 동기화 후 백그라운드 실행하며 중복 실행은 건너뜀 (`~/.sync_nas_index.log`)
 - 중복 동기화 방지를 위해 `~/.sync_nas.lock` 락 디렉토리를 사용하고 안에 실행 PID(`pid`)를 기록함. 다음 실행 때 그 프로세스가 없으면 잠금을 자동 해제함 (`WARN: 남은 잠금 해제`)
-- NAS 작업(`rclone copy`, `rclone check`)은 2700초(`NAS_STEP_TIMEOUT`)를 넘기면 종료함. SMB 응답이 끊겨도 다음 정각 실행이 막히지 않게 하기 위함 (ERR-020)
+- NAS 작업(`rclone copy`, `rclone check`)은 2700초(`NAS_STEP_TIMEOUT`)를 넘기면 종료함. SMB 응답이 끊기거나 macOS 권한 허용 창을 기다려도 다음 정각 실행이 막히지 않게 하기 위함 (ERR-020)
+- macOS 네트워크 볼륨 접근 권한이 필요함. 허용 창이 뜨면 정기 실행은 응답을 기다리며 멈추므로 Mac mini 화면에서 허용해야 함 (2026-10-30 재요청 발생)
 - Google Drive 당일 Download Backup/YYYY/YYMM/YYMMDD 폴더는 rclone Google Drive API로 우선 복사함
 - rclone remote 이름은 `gdrive_nas:`이고, root folder는 Work Space (`15FxOAg39qbr7jLOtEMceEyFXJ34H24TW`)
 - Screen Shot은 `gdrive_screenshots:` remote를 사용하고, root folder는 Screen Shot (`1rPE71JlLqAcq1BNZI5kE8mKwo0-2hCpf`)
@@ -106,7 +107,10 @@ ls /Volumes/personal_folder/
 # NAS 0바이트 파일 점검 (0이어야 정상)
 find /Volumes/personal_folder/Macmini_backup -type f -size 0 ! -name '.DS_Store' | wc -l
 
-# 정각 로그가 끊겼을 때: 멈춘 실행이 있는지 확인 (launchd는 실행 중이면 다음 스케줄을 건너뜀)
+# 정각 로그가 끊겼거나 "NAS 동기화 시간 초과"가 나올 때:
+# 1) Mac mini 화면에 "네트워크 볼륨의 파일에 접근" 허용 창이 떠 있는지 확인 → 허용
+#    (시스템 설정 → 개인정보 보호 및 보안 → 파일 및 폴더 / 전체 디스크 접근 권한에서 bash·rclone 확인)
+# 2) 멈춘 실행이 있는지 확인 (launchd는 실행 중이면 다음 스케줄을 건너뜀)
 pgrep -fl "sync_to_nas|rclone|rsync"
 
 # 남은 잠금은 다음 실행 때 자동 해제됨. 수동으로 지울 때는 프로세스가 없는 것을 확인한 뒤
@@ -184,6 +188,7 @@ Finder에서 NAS 연결 시 "키체인에 비밀번호 기억" 체크 필요
 | 0바이트 파일로 NAS 원본 덮어쓰기 방지 | 구현 완료 (2026-10-29) |
 | 오래된 잠금 자동 해제 | 구현 완료 (PID 확인, 2026-10-30) |
 | NAS 응답 없음 시 무한 대기 방지 | 구현 완료 (NAS 작업 2700초 제한, 2026-10-30) |
+| macOS 네트워크 볼륨 권한 재요청 대응 | 수동 - 화면 허용 창 확인 (4장 명령어 주석) |
 | NAS 미연결 시 재연결 | 구현 완료 |
 | 동기화 로그 기록 | 구현 완료 |
 | Slack 알림 (완료/실패) | 구현 완료 |
